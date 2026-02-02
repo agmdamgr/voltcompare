@@ -1,0 +1,7 @@
+{
+  "name": "VoltCompare: Green Button Energy Optimizer",
+  "description": "Upload your Green Button electricity usage data to analyze consumption patterns and compare different utility tariff schedules to find your cheapest power plan.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
