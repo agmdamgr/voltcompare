@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { EnergyReading, Tariff, ComparisonResult, TimePeriod, SimulatedLoad, GasReading, GasComparisonResult } from './types';
 import { DEFAULT_TARIFFS, LOAD_PRESETS, DEFAULT_GAS_TARIFF } from './constants';
 import EnergyChart from './components/EnergyChart';
-import { analyzeUsageWithGemini } from './services/geminiService';
+import { analyzeUsageWithClaude } from './services/claudeService';
 import { compareTariffs, calculateDetailedCost } from './services/energyCalculator';
 import { parsePgeIntervalCsv } from './services/pgeCsvParser';
 import { parsePgeGasCsv } from './services/pgeGasCsvParser';
@@ -826,7 +826,7 @@ const App: React.FC = () => {
                       <button 
                         onClick={async () => {
                           setIsAnalyzing(true);
-                          setAiAnalysis(await analyzeUsageWithGemini(readings, DEFAULT_TARIFFS, location));
+                          setAiAnalysis(await analyzeUsageWithClaude(readings, DEFAULT_TARIFFS, location));
                           setIsAnalyzing(false);
                         }}
                         disabled={isAnalyzing}
