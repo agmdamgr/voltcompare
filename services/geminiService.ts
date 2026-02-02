@@ -7,7 +7,11 @@ export const analyzeUsageWithGemini = async (
   tariffs: Tariff[],
   location: string
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+  if (!apiKey) {
+    return "AI analysis requires a Gemini API key. The rate comparison features work without it.";
+  }
+  const ai = new GoogleGenAI({ apiKey });
   
   // Prepare a summary to stay within token limits
   const totalKWh = readings.reduce((sum, r) => sum + r.value, 0);
