@@ -132,10 +132,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
         <div>
           <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
             <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
-            Load Profile
+            Usage Detail
           </h3>
           <p className="text-xs text-slate-400 font-bold mt-1 uppercase tracking-widest">
-            {granularity === '15m' ? 'Raw Meter Intervals' : `Aggregated by ${granularity}`}
+            {granularity === '15m' ? '15-Minute Intervals' : `Grouped by ${granularity === '1h' ? 'Hour' : granularity === '1d' ? 'Day' : granularity === '1w' ? 'Week' : 'Month'}`}
             {onBarClick && period !== 'day' && <span className="ml-2 text-blue-500">• Click bars to drill down</span>}
           </p>
         </div>

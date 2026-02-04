@@ -718,7 +718,7 @@ const App: React.FC = () => {
                     color: simulatedMonthlyKwh > 0 ? 'text-violet-500' : (isOngoingPeriod ? 'text-amber-500' : 'text-slate-400')
                   },
                   { label: `Period Cost`, val: `$${periodStats?.cost.toFixed(2)}`, color: 'text-blue-600' },
-                  { label: 'Avg Monthly', val: `$${(comparisons.find(c => c.tariffId === currentTariff.id)?.estimatedMonthlyCost || 0).toFixed(0)}`, color: 'text-slate-400' }
+                  { label: 'Est. Monthly Bill', val: `$${(comparisons.find(c => c.tariffId === currentTariff.id)?.estimatedMonthlyCost || 0).toFixed(0)}`, color: 'text-slate-400' }
                 ].map((stat, i) => (
                   <div key={i} className="bg-white p-7 rounded-3xl border border-slate-100 shadow-sm relative">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{stat.label}</p>
