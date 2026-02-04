@@ -1,17 +1,62 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, XAxis, YAxis } from 'recharts';
-import { EnergyReading, TimePeriod } from '../types';
+import { EnergyReading, TimePeriod, Tariff } from '../types';
+
+type HourType = 'peak' | 'partial-peak' | 'off-peak' | 'flat';
+
+const classifyHour = (hour: number, tariff: Tariff): HourType => {
+  if (tariff.type === 'flat') return 'flat';
+
+  for (const p of tariff.periods) {
+    const inRange = p.startHour <= p.endHour
+      ? hour >= p.startHour && hour <= p.endHour
+      : hour >= p.startHour || hour <= p.endHour;
+
+    if (inRange) {
+      const name = p.name.toLowerCase();
+      if (name.includes('partial')) return 'partial-peak';
+      if (name.includes('peak') && !name.includes('off')) return 'peak';
+      return 'off-peak';
+    }
+  }
+  return 'off-peak';
+};
+
+const getRateForHour = (hour: number, tariff: Tariff): number => {
+  for (const p of tariff.periods) {
+    const inRange = p.startHour <= p.endHour
+      ? hour >= p.startHour && hour <= p.endHour
+      : hour >= p.startHour || hour <= p.endHour;
+    if (inRange) return p.rate;
+  }
+  return tariff.periods[0]?.rate ?? 0;
+};
+
+const hourTypeColor: Record<HourType, string> = {
+  'peak': '#f43f5e',
+  'partial-peak': '#f59e0b',
+  'off-peak': '#3b82f6',
+  'flat': '#3b82f6',
+};
+
+const hourTypeLabel: Record<HourType, string> = {
+  'peak': 'Peak',
+  'partial-peak': 'Partial-Peak',
+  'off-peak': 'Off-Peak',
+  'flat': 'Flat Rate',
+};
 
 interface EnergyChartProps {
   readings: EnergyReading[];
   period: TimePeriod;
+  tariff: Tariff;
   onBarClick?: (timestamp: number) => void;
 }
 
 type Granularity = '15m' | '1h' | '1d' | '1w' | '1m';
 
-const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, onBarClick }) => {
+const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onBarClick }) => {
   const [granularity, setGranularity] = useState<Granularity>('1h');
 
   useEffect(() => {
@@ -24,13 +69,14 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, onBarClick 
     if (readings.length === 0) return [];
 
     const now = new Date();
-    const map: Record<string, { usage: number; label: string; isPeak: boolean; timestamp: number; isFuture: boolean }> = {};
+    const map: Record<string, { usage: number; cost: number; rate: number; label: string; hourType: HourType; timestamp: number; isFuture: boolean }> = {};
 
     readings.forEach(r => {
       let key = '';
       let label = '';
       const h = r.timestamp.getHours();
-      const isPeak = h >= 16 && h <= 20;
+      const hourType = classifyHour(h, tariff);
+      const rate = getRateForHour(h, tariff);
       const isFuture = r.timestamp > now;
 
       if (granularity === '15m') {
@@ -63,14 +109,15 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, onBarClick 
       }
 
       if (!map[key]) {
-        map[key] = { usage: 0, label, isPeak, timestamp: parseInt(key), isFuture };
+        map[key] = { usage: 0, cost: 0, rate, label, hourType, timestamp: parseInt(key), isFuture };
       }
       map[key].usage += r.value;
+      map[key].cost += r.value * rate;
       if (isFuture) map[key].isFuture = true;
     });
 
     return Object.values(map).sort((a, b) => a.timestamp - b.timestamp);
-  }, [readings, granularity]);
+  }, [readings, granularity, tariff]);
 
   const availableGranularities = useMemo((): Granularity[] => {
     if (period === 'day') return ['15m', '1h'];
@@ -129,19 +176,54 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, onBarClick 
               axisLine={false}
               tickLine={false}
             />
-            <Tooltip 
+            <Tooltip
               cursor={{fill: '#f8fafc'}}
-              contentStyle={{ 
-                borderRadius: '24px', 
-                border: '1px solid #f1f5f9', 
-                boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)',
-                padding: '20px' 
-              }}
-              labelStyle={{ fontWeight: 900, color: '#0f172a', fontSize: '13px', marginBottom: '8px', textTransform: 'uppercase' }}
-              itemStyle={{ fontWeight: 700, fontSize: '12px', color: '#3b82f6' }}
-              formatter={(value: number, name: string, props: any) => {
-                const isFuture = props.payload.isFuture;
-                return [`${value.toFixed(3)} kWh${isFuture ? ' (Projected)' : ''}`, 'Usage'];
+              content={({ active, payload, label }) => {
+                if (!active || !payload || !payload[0]) return null;
+                const data = payload[0].payload;
+                const color = hourTypeColor[data.hourType as HourType];
+                return (
+                  <div style={{
+                    borderRadius: '24px',
+                    border: '1px solid #f1f5f9',
+                    boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)',
+                    padding: '20px',
+                    background: 'white',
+                    minWidth: '180px'
+                  }}>
+                    <p style={{ fontWeight: 900, color: '#0f172a', fontSize: '13px', marginBottom: '12px', textTransform: 'uppercase' }}>
+                      {label}
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700, fontSize: '12px', color: '#64748b' }}>Usage</span>
+                        <span style={{ fontWeight: 800, fontSize: '13px', color: color }}>
+                          {data.usage.toFixed(3)} kWh
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: 700, fontSize: '12px', color: '#64748b' }}>Cost</span>
+                        <span style={{ fontWeight: 800, fontSize: '13px', color: '#0f172a' }}>
+                          ${data.cost.toFixed(2)}
+                        </span>
+                      </div>
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        borderTop: '1px solid #f1f5f9', paddingTop: '6px', marginTop: '2px'
+                      }}>
+                        <span style={{ fontWeight: 700, fontSize: '11px', color: '#94a3b8' }}>Rate</span>
+                        <span style={{ fontWeight: 700, fontSize: '11px', color }}>
+                          {hourTypeLabel[data.hourType as HourType]} · ${data.rate.toFixed(2)}/kWh
+                        </span>
+                      </div>
+                    </div>
+                    {data.isFuture && (
+                      <p style={{ fontWeight: 700, fontSize: '10px', color: '#94a3b8', marginTop: '8px', fontStyle: 'italic' }}>
+                        Projected / Incomplete
+                      </p>
+                    )}
+                  </div>
+                );
               }}
             />
             <Bar 
@@ -155,7 +237,7 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, onBarClick 
               style={{ cursor: onBarClick && period !== 'day' ? 'pointer' : 'default' }}
             >
               {chartData.map((entry, index) => {
-                let color = entry.isPeak ? '#f43f5e' : '#3b82f6';
+                let color = hourTypeColor[entry.hourType];
                 let opacity = 0.85;
                 
                 if (entry.isFuture) {
@@ -177,14 +259,55 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, onBarClick 
       </div>
 
       <div className="mt-8 flex flex-wrap justify-center gap-x-8 gap-y-4 border-t border-slate-50 pt-6">
-         <div className="flex items-center gap-2">
-           <div className="w-3 h-3 bg-rose-500 rounded-md"></div>
-           <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Peak (4-9 PM)</span>
-         </div>
-         <div className="flex items-center gap-2">
-           <div className="w-3 h-3 bg-blue-500 rounded-md"></div>
-           <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Off-Peak</span>
-         </div>
+         {tariff.type !== 'flat' && (() => {
+           const hasPeak = tariff.periods.some(p => {
+             const n = p.name.toLowerCase();
+             return n.includes('peak') && !n.includes('off') && !n.includes('partial');
+           });
+           const hasPartialPeak = tariff.periods.some(p => p.name.toLowerCase().includes('partial'));
+           const peakPeriod = tariff.periods.find(p => {
+             const n = p.name.toLowerCase();
+             return n.includes('peak') && !n.includes('off') && !n.includes('partial');
+           });
+           const partialPeakPeriods = tariff.periods.filter(p => p.name.toLowerCase().includes('partial'));
+
+           const formatHour = (h: number) => {
+             if (h === 0) return '12 AM';
+             if (h === 12) return '12 PM';
+             return h < 12 ? `${h} AM` : `${h - 12} PM`;
+           };
+
+           return (
+             <>
+               {hasPeak && peakPeriod && (
+                 <div className="flex items-center gap-2">
+                   <div className="w-3 h-3 bg-rose-500 rounded-md"></div>
+                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                     Peak ({formatHour(peakPeriod.startHour)}-{formatHour(peakPeriod.endHour + 1)})
+                   </span>
+                 </div>
+               )}
+               {hasPartialPeak && (
+                 <div className="flex items-center gap-2">
+                   <div className="w-3 h-3 bg-amber-500 rounded-md"></div>
+                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                     Partial-Peak ({partialPeakPeriods.map(p => `${formatHour(p.startHour)}-${formatHour(p.endHour + 1)}`).join(', ')})
+                   </span>
+                 </div>
+               )}
+               <div className="flex items-center gap-2">
+                 <div className="w-3 h-3 bg-blue-500 rounded-md"></div>
+                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Off-Peak</span>
+               </div>
+             </>
+           );
+         })()}
+         {tariff.type === 'flat' && (
+           <div className="flex items-center gap-2">
+             <div className="w-3 h-3 bg-blue-500 rounded-md"></div>
+             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Flat Rate (All Hours)</span>
+           </div>
+         )}
          <div className="flex items-center gap-2">
            <div className="w-3 h-3 bg-slate-300 rounded-md"></div>
            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Projected / Incomplete</span>

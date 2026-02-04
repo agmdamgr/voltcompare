@@ -688,6 +688,7 @@ const App: React.FC = () => {
               <EnergyChart
                 readings={filteredReadings}
                 period={selectedPeriod}
+                tariff={currentTariff}
                 onBarClick={handleDrillDown}
               />
 
