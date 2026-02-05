@@ -2,60 +2,62 @@
 import { Tariff, LoadPreset, GasTariff } from './types';
 
 export const DEFAULT_TARIFFS: Tariff[] = [
-  // ============ PG&E Bundled Rates ============
+  // ============ PG&E Bundled Rates (Jan 2026) ============
+  // Summer = Jun-Sep, Winter = Oct-May. rate = winter, summerRate = summer.
   {
     id: 'pge-e1',
     name: 'PG&E E-1 (Tiered)',
-    description: 'Standard residential rate. Prices increase as you use more energy.',
+    description: 'Standard residential rate. Tier 1 (baseline) ~38¢, Tier 2 (above) ~47¢.',
     type: 'flat',
     fixedMonthlyCharge: 0,
     provider: 'pge-bundled',
     periods: [
-      { name: 'Baseline Average', startHour: 0, endHour: 23, rate: 0.44 }
+      { name: 'Baseline Average', startHour: 0, endHour: 23, rate: 0.38, summerRate: 0.40 }
     ]
   },
   {
     id: 'pge-tou-c',
     name: 'PG&E TOU-C (4-9 PM)',
-    description: 'Standard Time-of-Use plan. Peak hours are 4 PM to 9 PM every day.',
+    description: 'Standard Time-of-Use plan. Peak hours are 4–9 PM every day. Summer rates higher.',
     type: 'tou',
     fixedMonthlyCharge: 0,
     provider: 'pge-bundled',
     periods: [
-      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.54 },
-      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.45 }
+      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.46, summerRate: 0.55 },
+      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.39, summerRate: 0.47 }
     ]
   },
   {
     id: 'pge-ev2a',
     name: 'PG&E EV2-A (EV & Battery)',
-    description: 'Best for EV owners. Very expensive peak, but cheapest overnight rates.',
+    description: 'Best for EV owners. Cheapest overnight rates. Summer peak is steep.',
     type: 'tou',
     fixedMonthlyCharge: 0,
     provider: 'pge-bundled',
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.66 },
-      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.51 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.51 },
-      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.28 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.47, summerRate: 0.61 },
+      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.42, summerRate: 0.50 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.42, summerRate: 0.50 },
+      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.30, summerRate: 0.30 }
     ]
   },
   {
     id: 'pge-e-home',
     name: 'PG&E E-ELEC (E-Home)',
-    description: 'For homes with heat pumps or batteries. Includes a $15 monthly fixed charge.',
+    description: 'For electrified homes with heat pumps or batteries. $15/mo fixed charge.',
     type: 'tou',
     fixedMonthlyCharge: 15,
     provider: 'pge-bundled',
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.61 },
-      { name: 'Partial-Peak', startHour: 15, endHour: 15, rate: 0.49 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.49 },
-      { name: 'Off-Peak', startHour: 0, endHour: 14, rate: 0.36 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.42, summerRate: 0.55 },
+      { name: 'Partial-Peak', startHour: 15, endHour: 15, rate: 0.37, summerRate: 0.44 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.37, summerRate: 0.44 },
+      { name: 'Off-Peak', startHour: 0, endHour: 14, rate: 0.30, summerRate: 0.34 }
     ]
   },
 
-  // ============ MCE Light Green + PG&E Delivery ============
+  // ============ MCE Light Green + PG&E Delivery (Jan 2026) ============
+  // MCE generation is ~1-2¢ cheaper than PG&E bundled gen. Delivery is same PG&E component.
   {
     id: 'mce-e1',
     name: 'MCE Light Green E-1',
@@ -64,7 +66,7 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
     periods: [
-      { name: 'Baseline Average', startHour: 0, endHour: 23, rate: 0.43 }
+      { name: 'Baseline Average', startHour: 0, endHour: 23, rate: 0.37, summerRate: 0.39 }
     ]
   },
   {
@@ -75,8 +77,8 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
     periods: [
-      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.52 },
-      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.43 }
+      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.44, summerRate: 0.53 },
+      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.38, summerRate: 0.45 }
     ]
   },
   {
@@ -87,10 +89,10 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.64 },
-      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.49 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.49 },
-      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.26 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.45, summerRate: 0.59 },
+      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.40, summerRate: 0.48 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.40, summerRate: 0.48 },
+      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.28, summerRate: 0.28 }
     ]
   },
   {
@@ -101,10 +103,10 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     fixedMonthlyCharge: 15,
     provider: 'mce-pge',
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.59 },
-      { name: 'Partial-Peak', startHour: 15, endHour: 15, rate: 0.47 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.47 },
-      { name: 'Off-Peak', startHour: 0, endHour: 14, rate: 0.34 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.40, summerRate: 0.53 },
+      { name: 'Partial-Peak', startHour: 15, endHour: 15, rate: 0.35, summerRate: 0.42 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.35, summerRate: 0.42 },
+      { name: 'Off-Peak', startHour: 0, endHour: 14, rate: 0.28, summerRate: 0.32 }
     ]
   },
 
@@ -117,8 +119,8 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
     periods: [
-      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.53 },
-      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.44 }
+      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.45, summerRate: 0.54 },
+      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.39, summerRate: 0.46 }
     ]
   },
   {
@@ -129,10 +131,10 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.65 },
-      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.50 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.50 },
-      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.27 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.46, summerRate: 0.60 },
+      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.41, summerRate: 0.49 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.41, summerRate: 0.49 },
+      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.29, summerRate: 0.29 }
     ]
   }
 ];

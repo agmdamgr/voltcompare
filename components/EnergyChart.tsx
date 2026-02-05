@@ -1,9 +1,16 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, XAxis, YAxis } from 'recharts';
-import { EnergyReading, TimePeriod, Tariff } from '../types';
+import { EnergyReading, TimePeriod, Tariff, TariffPeriod } from '../types';
 
 type HourType = 'peak' | 'partial-peak' | 'off-peak' | 'flat';
+
+const isSummerMonth = (month: number) => month >= 5 && month <= 8;
+
+const getEffectiveRate = (period: TariffPeriod, month: number): number => {
+  if (period.summerRate != null && isSummerMonth(month)) return period.summerRate;
+  return period.rate;
+};
 
 const classifyHour = (hour: number, tariff: Tariff): HourType => {
   if (tariff.type === 'flat') return 'flat';
@@ -23,14 +30,14 @@ const classifyHour = (hour: number, tariff: Tariff): HourType => {
   return 'off-peak';
 };
 
-const getRateForHour = (hour: number, tariff: Tariff): number => {
+const getRateForHour = (hour: number, month: number, tariff: Tariff): number => {
   for (const p of tariff.periods) {
     const inRange = p.startHour <= p.endHour
       ? hour >= p.startHour && hour <= p.endHour
       : hour >= p.startHour || hour <= p.endHour;
-    if (inRange) return p.rate;
+    if (inRange) return getEffectiveRate(p, month);
   }
-  return tariff.periods[0]?.rate ?? 0;
+  return getEffectiveRate(tariff.periods[0], month) ?? 0;
 };
 
 const hourTypeColor: Record<HourType, string> = {
@@ -75,8 +82,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
       let key = '';
       let label = '';
       const h = r.timestamp.getHours();
+      const m = r.timestamp.getMonth();
       const hourType = classifyHour(h, tariff);
-      const rate = getRateForHour(h, tariff);
+      const rate = getRateForHour(h, m, tariff);
       const isFuture = r.timestamp > now;
 
       if (granularity === '15m') {

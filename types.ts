@@ -8,7 +8,8 @@ export interface TariffPeriod {
   name: string;
   startHour: number; // 0-23
   endHour: number;   // 0-23
-  rate: number;      // price per kWh
+  rate: number;      // price per kWh (winter / default)
+  summerRate?: number; // price per kWh in summer (Jun-Sep), if different
 }
 
 export interface Tariff {

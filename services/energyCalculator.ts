@@ -1,5 +1,15 @@
 
-import { EnergyReading, Tariff, ComparisonResult, MonthlyBreakdown } from '../types';
+import { EnergyReading, Tariff, TariffPeriod, ComparisonResult, MonthlyBreakdown } from '../types';
+
+// PG&E summer = Jun-Sep (months 5-8), winter = Oct-May
+const isSummerMonth = (month: number) => month >= 5 && month <= 8;
+
+const getEffectiveRate = (period: TariffPeriod, month: number): number => {
+  if (period.summerRate != null && isSummerMonth(month)) {
+    return period.summerRate;
+  }
+  return period.rate;
+};
 
 export const calculateDetailedCost = (readings: EnergyReading[], tariff: Tariff): { totalCost: number, breakdown: MonthlyBreakdown[] } => {
   const periodMap: Record<string, { usage: number, cost: number }> = {};
@@ -11,10 +21,10 @@ export const calculateDetailedCost = (readings: EnergyReading[], tariff: Tariff)
 
   readings.forEach(reading => {
     const date = reading.timestamp;
-    
+
     // Period keys for grouping - use padded month for correct sorting
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    
+
     // Reset tiered usage if month changes
     if (date.getMonth() !== currentMonth) {
       monthlyUsageCounter = 0;
@@ -27,24 +37,22 @@ export const calculateDetailedCost = (readings: EnergyReading[], tariff: Tariff)
 
     let rate = 0;
     const hour = date.getHours();
+    const month = date.getMonth();
 
     if (tariff.type === 'flat' || tariff.type === 'tiered') {
       // PG&E-style tiered pricing with seasonal baseline
       // Summer (Jun-Sep): ~270 kWh baseline, Winter: ~350 kWh baseline
-      const month = date.getMonth();
-      const isSummer = month >= 5 && month <= 8;
+      const isSummer = isSummerMonth(month);
       const baseline = isSummer ? 270 : 350;
 
+      // Use seasonal base rate
+      const baseRate = getEffectiveRate(tariff.periods[0], month);
       // Tier 1: up to baseline at base rate
-      // Tier 2: 101-400% of baseline at ~1.28x
-      // Tier 3: over 400% of baseline at ~1.45x (high usage penalty)
-      const baseRate = tariff.periods[0].rate;
+      // Tier 2: above baseline at ~1.24x (reflects E-1 Tier 2 at ~47¢ vs Tier 1 ~38¢)
       if (monthlyUsageCounter < baseline) {
         rate = baseRate;
-      } else if (monthlyUsageCounter < baseline * 4) {
-        rate = baseRate * 1.28;
       } else {
-        rate = baseRate * 1.45;
+        rate = baseRate * 1.24;
       }
     } else {
       const period = tariff.periods.find(p => {
@@ -54,7 +62,7 @@ export const calculateDetailedCost = (readings: EnergyReading[], tariff: Tariff)
           return hour >= p.startHour || hour <= p.endHour;
         }
       });
-      rate = period ? period.rate : tariff.periods[0].rate;
+      rate = period ? getEffectiveRate(period, month) : getEffectiveRate(tariff.periods[0], month);
     }
 
     const energyCost = reading.value * rate;
