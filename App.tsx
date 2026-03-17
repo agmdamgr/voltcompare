@@ -314,6 +314,17 @@ const App: React.FC = () => {
     return { usage, cost: tempCalc.totalCost };
   }, [filteredReadings, comparisons, currentTariff]);
 
+  const periodMonthKey = useMemo(() => {
+    if (selectedPeriod !== 'month' || filteredReadings.length === 0) return null;
+    const d = filteredReadings[0].timestamp;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, [selectedPeriod, filteredReadings]);
+
+  const periodGasCost = useMemo(() => {
+    if (!periodMonthKey || !gasComparison) return null;
+    return gasComparison.breakdown.find(b => b.monthName === periodMonthKey)?.cost ?? null;
+  }, [periodMonthKey, gasComparison]);
+
   const sortedComparisons = useMemo(() => {
     if (comparisons.length === 0) return [];
     const currentEntry = comparisons.find(c => c.tariffId === currentTariff.id);
@@ -718,7 +729,6 @@ const App: React.FC = () => {
                     color: simulatedMonthlyKwh > 0 ? 'text-violet-500' : (isOngoingPeriod ? 'text-amber-500' : 'text-slate-400')
                   },
                   { label: `Period Cost`, val: `$${periodStats?.cost.toFixed(2)}`, color: 'text-blue-600' },
-                  { label: 'Est. Monthly Bill', val: `$${(comparisons.find(c => c.tariffId === currentTariff.id)?.estimatedMonthlyCost || 0).toFixed(0)}`, color: 'text-slate-400' }
                 ].map((stat, i) => (
                   <div key={i} className="bg-white p-7 rounded-3xl border border-slate-100 shadow-sm relative">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{stat.label}</p>
@@ -728,6 +738,44 @@ const App: React.FC = () => {
                     )}
                   </div>
                 ))}
+                {/* Est. Monthly Bill / Period Bill breakdown card */}
+                <div className="bg-white p-7 rounded-3xl border border-slate-100 shadow-sm relative">
+                  {selectedPeriod === 'month' && periodStats != null ? (() => {
+                    const elecCost = periodStats.cost;
+                    const gasCost = periodGasCost;
+                    const total = elecCost + (gasCost ?? 0);
+                    return (
+                      <>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
+                          {isOngoingPeriod ? 'Month-to-Date Bill' : 'Monthly Bill'}
+                        </p>
+                        <p className="text-2xl font-black text-slate-900">${total.toFixed(2)}</p>
+                        <div className="mt-3 space-y-1 border-t border-slate-100 pt-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Electricity</span>
+                            <span className="text-[11px] font-black text-slate-700">${elecCost.toFixed(2)}</span>
+                          </div>
+                          {gasCost != null ? (
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Gas</span>
+                              <span className="text-[11px] font-black text-slate-700">${gasCost.toFixed(2)}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-orange-300 uppercase tracking-widest">Gas</span>
+                              <span className="text-[10px] text-slate-300 font-bold">No data</span>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })() : (
+                    <>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Est. Monthly Bill</p>
+                      <p className="text-2xl font-black text-slate-400">${(comparisons.find(c => c.tariffId === currentTariff.id)?.estimatedMonthlyCost || 0).toFixed(0)}</p>
+                    </>
+                  )}
+                </div>
               </div>
 
               {isPeriodPending && (
