@@ -20,7 +20,7 @@ const App: React.FC = () => {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [chunkIndex, setChunkIndex] = useState(0);
+  const [chunkIndex, setChunkIndex] = useState(Number.MAX_SAFE_INTEGER);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadWarnings, setUploadWarnings] = useState<string[]>([]);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
@@ -72,7 +72,7 @@ const App: React.FC = () => {
         const result = parsePgeIntervalCsv(text);
         setReadings(result.readings);
         setUploadWarnings(result.warnings);
-        setChunkIndex(0);
+        setChunkIndex(Number.MAX_SAFE_INTEGER);
       } catch (err: any) {
         setReadings([]);
         setUploadWarnings([]);
@@ -233,9 +233,9 @@ const App: React.FC = () => {
         const end = chunk[chunk.length - 1].timestamp;
         return anchor >= start && anchor <= end;
       });
-      setChunkIndex(idx >= 0 ? idx : 0);
+      setChunkIndex(idx >= 0 ? idx : Number.MAX_SAFE_INTEGER);
     } else {
-      setChunkIndex(0);
+      setChunkIndex(Number.MAX_SAFE_INTEGER);
     }
   }, [selectedPeriod, periodChunks]);
 
@@ -392,7 +392,10 @@ const App: React.FC = () => {
   }, [readings]);
 
   const navigate = (dir: number) => {
-    setChunkIndex(prev => Math.max(0, Math.min(periodChunks.length - 1, prev + dir)));
+    setChunkIndex(prev => {
+      const current = Math.min(prev, periodChunks.length - 1);
+      return Math.max(0, Math.min(periodChunks.length - 1, current + dir));
+    });
   };
 
   const toggleSimulatedLoad = (presetId: string) => {
