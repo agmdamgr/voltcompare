@@ -315,15 +315,34 @@ const App: React.FC = () => {
   }, [filteredReadings, comparisons, currentTariff]);
 
   const periodMonthKey = useMemo(() => {
-    if (selectedPeriod !== 'month' || filteredReadings.length === 0) return null;
+    if (filteredReadings.length === 0) return null;
     const d = filteredReadings[0].timestamp;
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  }, [selectedPeriod, filteredReadings]);
+  }, [filteredReadings]);
 
   const periodGasCost = useMemo(() => {
-    if (!periodMonthKey || !gasComparison) return null;
-    return gasComparison.breakdown.find(b => b.monthName === periodMonthKey)?.cost ?? null;
-  }, [periodMonthKey, gasComparison]);
+    if (!gasComparison || gasComparison.breakdown.length === 0 || filteredReadings.length === 0) return null;
+    const start = filteredReadings[0].timestamp;
+
+    if (selectedPeriod === 'year') {
+      const year = start.getFullYear();
+      return gasComparison.breakdown
+        .filter(b => b.monthName.startsWith(`${year}-`))
+        .reduce((sum, b) => sum + b.cost, 0);
+    }
+
+    if (selectedPeriod === 'month') {
+      return gasComparison.breakdown.find(b => b.monthName === periodMonthKey)?.cost ?? null;
+    }
+
+    // day / week: prorate from the month the period starts in
+    const monthEntry = gasComparison.breakdown.find(b => b.monthName === periodMonthKey);
+    if (!monthEntry) return null;
+    const daysInMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+    const end = filteredReadings[filteredReadings.length - 1].timestamp;
+    const periodDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+    return (monthEntry.cost / daysInMonth) * periodDays;
+  }, [selectedPeriod, filteredReadings, gasComparison, periodMonthKey]);
 
   const sortedComparisons = useMemo(() => {
     if (comparisons.length === 0) return [];
@@ -738,17 +757,21 @@ const App: React.FC = () => {
                     )}
                   </div>
                 ))}
-                {/* Est. Monthly Bill / Period Bill breakdown card */}
+                {/* Period Bill breakdown card */}
                 <div className="bg-white p-7 rounded-3xl border border-slate-100 shadow-sm relative">
-                  {selectedPeriod === 'month' && periodStats != null ? (() => {
-                    const elecCost = periodStats.cost;
+                  {(() => {
+                    const cardLabel = {
+                      day: isOngoingPeriod ? 'Day-to-Date Bill' : "Day's Bill",
+                      week: isOngoingPeriod ? 'Week-to-Date Bill' : "Week's Bill",
+                      month: isOngoingPeriod ? 'Month-to-Date Bill' : 'Monthly Bill',
+                      year: isOngoingPeriod ? 'Year-to-Date Bill' : 'Annual Bill',
+                    }[selectedPeriod];
+                    const elecCost = periodStats?.cost ?? 0;
                     const gasCost = periodGasCost;
                     const total = elecCost + (gasCost ?? 0);
                     return (
                       <>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">
-                          {isOngoingPeriod ? 'Month-to-Date Bill' : 'Monthly Bill'}
-                        </p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{cardLabel}</p>
                         <p className="text-2xl font-black text-slate-900">${total.toFixed(2)}</p>
                         <div className="mt-3 space-y-1 border-t border-slate-100 pt-3">
                           <div className="flex items-center justify-between">
@@ -758,7 +781,7 @@ const App: React.FC = () => {
                           {gasCost != null ? (
                             <div className="flex items-center justify-between">
                               <span className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Gas</span>
-                              <span className="text-[11px] font-black text-slate-700">${gasCost.toFixed(2)}</span>
+                              <span className="text-[11px] font-black text-slate-700">${gasCost.toFixed(2)}{selectedPeriod !== 'month' && selectedPeriod !== 'year' && <span className="text-[9px] font-medium text-slate-400 ml-1">est.</span>}</span>
                             </div>
                           ) : (
                             <div className="flex items-center justify-between">
@@ -769,12 +792,7 @@ const App: React.FC = () => {
                         </div>
                       </>
                     );
-                  })() : (
-                    <>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Est. Monthly Bill</p>
-                      <p className="text-2xl font-black text-slate-400">${(comparisons.find(c => c.tariffId === currentTariff.id)?.estimatedMonthlyCost || 0).toFixed(0)}</p>
-                    </>
-                  )}
+                  })()}
                 </div>
               </div>
 
