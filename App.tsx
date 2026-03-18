@@ -27,6 +27,8 @@ const App: React.FC = () => {
   const [simulatedLoads, setSimulatedLoads] = useState<SimulatedLoad[]>([]);
   const [showSimPanel, setShowSimPanel] = useState(false);
   const isDrillingDown = useRef(false);
+  const anchorDateRef = useRef<Date | null>(null);
+  const periodChangedRef = useRef(false);
   const [isPeriodPending, startPeriodTransition] = useTransition();
 
   // Gas state
@@ -219,8 +221,23 @@ const App: React.FC = () => {
       isDrillingDown.current = false;
       return;
     }
-    setChunkIndex(0);
-  }, [selectedPeriod]);
+    if (!periodChangedRef.current) return;
+    periodChangedRef.current = false;
+
+    const anchor = anchorDateRef.current;
+    anchorDateRef.current = null;
+    if (anchor && periodChunks.length > 0) {
+      const idx = periodChunks.findIndex(chunk => {
+        if (chunk.length === 0) return false;
+        const start = chunk[0].timestamp;
+        const end = chunk[chunk.length - 1].timestamp;
+        return anchor >= start && anchor <= end;
+      });
+      setChunkIndex(idx >= 0 ? idx : 0);
+    } else {
+      setChunkIndex(0);
+    }
+  }, [selectedPeriod, periodChunks]);
 
   const filteredReadings = useMemo(() => {
     if (periodChunks.length === 0) return [];
@@ -697,7 +714,11 @@ const App: React.FC = () => {
                     {(['day', 'week', 'month', 'year'] as TimePeriod[]).map((p) => (
                       <button
                         key={p}
-                        onClick={() => startPeriodTransition(() => setSelectedPeriod(p))}
+                        onClick={() => {
+                          anchorDateRef.current = filteredReadings[0]?.timestamp ?? null;
+                          periodChangedRef.current = true;
+                          startPeriodTransition(() => setSelectedPeriod(p));
+                        }}
                         className={`px-5 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
                           selectedPeriod === p ? 'bg-white text-slate-900 shadow-md transform scale-105' : 'text-slate-400 hover:text-slate-600'
                         }`}
