@@ -29,6 +29,7 @@ const App: React.FC = () => {
   const [nemEnabled, setNemEnabled] = useState<boolean>(
     () => localStorage.getItem('vc_nem') === 'true'
   );
+  const [showRefinements, setShowRefinements] = useState<boolean>(false);
   const [location, setLocation] = useState<string>('San Francisco Bay Area');
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('month');
   const [currentTariff, setCurrentTariff] = useState<Tariff>(
@@ -150,6 +151,13 @@ const App: React.FC = () => {
 
   // Use SoCalGas tariff for SCE/SDG&E territory, PG&E gas otherwise
   const activeGasTariff = (provider === 'sce-bundled' || provider === 'sdge-bundled') ? SOCALGAS_TARIFF : DEFAULT_GAS_TARIFF;
+
+  // Auto-expand refinements panel when any refinement data is active
+  useEffect(() => {
+    if (gasReadings.length > 0 || nemEnabled || customBillingDates.length > 0) {
+      setShowRefinements(true);
+    }
+  }, [gasReadings.length, nemEnabled, customBillingDates.length]);
 
   // Calculate gas comparison when gas readings or territory changes
   useEffect(() => {
@@ -899,157 +907,162 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              {/* Billing Period Dates */}
-              <div className={`rounded-[2rem] p-6 border transition-all ${customBillingDates.length > 0 ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
-                <div className="flex items-start gap-4">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${customBillingDates.length > 0 ? 'bg-blue-100' : 'bg-slate-100'}`}>
-                    <i className={`fa-solid fa-calendar-days text-xl ${customBillingDates.length > 0 ? 'text-blue-600' : 'text-slate-400'}`}></i>
+              {/* Refine Your Analysis — collapsible optional enhancements */}
+              <div className="rounded-[2rem] border border-slate-200 bg-white overflow-hidden">
+                {/* Header — always visible */}
+                <button
+                  onClick={() => setShowRefinements(v => !v)}
+                  className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <i className="fa-solid fa-sliders text-slate-400 text-sm"></i>
+                    <span className="text-sm font-black text-slate-700">Refine your analysis</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 border border-slate-200 px-2 py-0.5 rounded-full">Optional</span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className={`text-sm font-black ${customBillingDates.length > 0 ? 'text-blue-900' : 'text-slate-700'}`}>Billing Period End Dates</h4>
-                    <p className={`text-xs font-medium mb-3 ${customBillingDates.length > 0 ? 'text-blue-600' : 'text-slate-500'}`}>
-                      {customBillingDates.length > 0
-                        ? `${customBillingDates.length} periods loaded — month view shows actual billing periods`
-                        : 'Optional: paste end dates from your bill\'s NEM YTD table for exact period alignment'}
-                    </p>
-                    <textarea
-                      rows={2}
-                      placeholder="e.g. 05/27/2025, 06/26/2025, 07/28/2025, 08/27/2025, 09/26/2025, 10/28/2025, 11/26/2025, 12/29/2025"
-                      value={billingDatesInput}
-                      onChange={e => {
-                        const raw = e.target.value;
-                        setBillingDatesInput(raw);
-                        const parts = raw.split(/[\s,;]+/).filter(Boolean);
-                        const dates: string[] = [];
-                        for (const part of parts) {
-                          const mmddyyyy = part.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-                          if (mmddyyyy) { dates.push(`${mmddyyyy[3]}-${mmddyyyy[1].padStart(2,'0')}-${mmddyyyy[2].padStart(2,'0')}`); continue; }
-                          const mmddyy = part.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-                          if (mmddyy) { dates.push(`20${mmddyy[3]}-${mmddyy[1].padStart(2,'0')}-${mmddyy[2].padStart(2,'0')}`); continue; }
-                          if (/^\d{4}-\d{2}-\d{2}$/.test(part)) dates.push(part);
-                        }
-                        const sorted = dates.sort();
-                        localStorage.setItem('vc_billing_dates', JSON.stringify(sorted));
-                        setCustomBillingDates(sorted);
-                      }}
-                      className="w-full text-xs font-medium text-slate-700 bg-white border-2 border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-400 resize-none placeholder:text-slate-300"
-                    />
-                    {customBillingDates.length > 0 && (
-                      <button
-                        onClick={() => {
-                          setBillingDatesInput('');
-                          setCustomBillingDates([]);
-                          localStorage.removeItem('vc_billing_dates');
-                        }}
-                        className="mt-2 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-red-500 transition-all"
-                      >
-                        <i className="fa-solid fa-xmark mr-1"></i>Clear dates
-                      </button>
+                  <div className="flex items-center gap-2">
+                    {/* Active badges — visible when collapsed */}
+                    {!showRefinements && (
+                      <div className="flex items-center gap-1.5">
+                        {nemEnabled && <span className="text-[9px] font-black bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Solar NEM</span>}
+                        {gasReadings.length > 0 && <span className="text-[9px] font-black bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Gas</span>}
+                        {customBillingDates.length > 0 && <span className="text-[9px] font-black bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{customBillingDates.length} periods</span>}
+                        {!nemEnabled && gasReadings.length === 0 && customBillingDates.length === 0 && (
+                          <span className="text-[10px] text-slate-400 font-medium">Solar · Gas · Billing dates</span>
+                        )}
+                      </div>
                     )}
+                    <i className={`fa-solid fa-chevron-${showRefinements ? 'up' : 'down'} text-slate-300 text-xs ml-1`}></i>
                   </div>
-                </div>
-              </div>
+                </button>
 
-              {/* Solar / NEM Setting */}
-              <div className={`rounded-[2rem] p-6 border transition-all ${nemEnabled ? 'bg-yellow-50 border-yellow-200' : 'bg-slate-50 border-slate-100'}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${nemEnabled ? 'bg-yellow-200' : 'bg-slate-100'}`}>
-                      <i className={`fa-solid fa-solar-panel text-xl ${nemEnabled ? 'text-yellow-700' : 'text-slate-400'}`}></i>
-                    </div>
-                    <div>
-                      <h4 className={`text-sm font-black ${nemEnabled ? 'text-yellow-900' : 'text-slate-700'}`}>Solar / NEM</h4>
-                      <p className={`text-xs font-medium ${nemEnabled ? 'text-yellow-700' : 'text-slate-500'}`}>
-                        {nemEnabled ? 'True-Up mode active — credits defer to anniversary' : 'Enable if you have rooftop solar'}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const next = !nemEnabled;
-                      localStorage.setItem('vc_nem', String(next));
-                      setNemEnabled(next);
-                    }}
-                    className={`relative w-12 h-6 rounded-full transition-all ${nemEnabled ? 'bg-yellow-500' : 'bg-slate-200'}`}
-                  >
-                    <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${nemEnabled ? 'left-7' : 'left-1'}`} />
-                  </button>
-                </div>
-              </div>
+                {/* Expandable content */}
+                {showRefinements && (
+                  <div className="border-t border-slate-100 divide-y divide-slate-100">
 
-              {/* Gas Data Section */}
-              <div className={`rounded-[2rem] p-6 border ${gasReadings.length > 0 ? 'bg-orange-50 border-orange-100' : 'bg-slate-50 border-slate-100'}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${gasReadings.length > 0 ? 'bg-orange-100' : 'bg-slate-100'}`}>
-                      <i className={`fa-solid fa-fire-flame-simple text-xl ${gasReadings.length > 0 ? 'text-orange-600' : 'text-slate-400'}`}></i>
+                    {/* Solar / NEM */}
+                    <div className={`px-6 py-4 transition-colors ${nemEnabled ? 'bg-yellow-50' : ''}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <i className={`fa-solid fa-solar-panel text-base ${nemEnabled ? 'text-yellow-500' : 'text-slate-300'}`}></i>
+                          <div>
+                            <h4 className={`text-sm font-black ${nemEnabled ? 'text-yellow-900' : 'text-slate-600'}`}>Solar / NEM</h4>
+                            <p className={`text-xs font-medium ${nemEnabled ? 'text-yellow-600' : 'text-slate-400'}`}>
+                              {nemEnabled ? 'True-Up mode active — credits defer to anniversary' : 'Have rooftop solar? Enable for NEM True-Up tracking'}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const next = !nemEnabled;
+                            localStorage.setItem('vc_nem', String(next));
+                            setNemEnabled(next);
+                          }}
+                          className={`relative w-11 h-6 rounded-full transition-all flex-shrink-0 ${nemEnabled ? 'bg-yellow-400' : 'bg-slate-200'}`}
+                        >
+                          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${nemEnabled ? 'left-6' : 'left-1'}`} />
+                        </button>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className={`text-sm font-black ${gasReadings.length > 0 ? 'text-orange-900' : 'text-slate-700'}`}>
-                        {gasReadings.length > 0 ? 'Gas Data Loaded' : 'Add Gas Data (Optional)'}
-                      </h4>
-                      {gasReadings.length > 0 && gasComparison ? (
-                        <p className="text-xs text-orange-700 font-medium">
-                          {gasComparison.totalUsage.toFixed(0)} therms total · ${gasComparison.estimatedMonthlyCost.toFixed(0)}/mo avg
-                        </p>
-                      ) : (
-                        <p className="text-xs text-slate-500">Upload PG&E gas Green Button CSV for complete cost picture</p>
+
+                    {/* Gas Data */}
+                    <div className={`px-6 py-4 transition-colors ${gasReadings.length > 0 ? 'bg-orange-50' : ''}`}>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <i className={`fa-solid fa-fire-flame-simple text-base flex-shrink-0 ${gasReadings.length > 0 ? 'text-orange-500' : 'text-slate-300'}`}></i>
+                          <div className="min-w-0">
+                            <h4 className={`text-sm font-black ${gasReadings.length > 0 ? 'text-orange-900' : 'text-slate-600'}`}>Gas Data</h4>
+                            {gasReadings.length > 0 && gasComparison ? (
+                              <p className="text-xs text-orange-600 font-medium">{gasComparison.totalUsage.toFixed(0)} therms · ${gasComparison.estimatedMonthlyCost.toFixed(0)}/mo avg</p>
+                            ) : (
+                              <p className="text-xs text-slate-400 font-medium">Upload gas Green Button CSV to include gas in your total bill</p>
+                            )}
+                          </div>
+                        </div>
+                        {gasReadings.length === 0 ? (
+                          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold text-xs rounded-xl cursor-pointer transition-all flex-shrink-0">
+                            <i className="fa-solid fa-cloud-arrow-up text-xs"></i>
+                            Upload CSV
+                            <input type="file" className="hidden" onChange={handleGasFileUpload} accept=".csv" />
+                          </label>
+                        ) : (
+                          <button
+                            onClick={() => { setGasReadings([]); setGasUploadError(null); setGasUploadWarnings([]); setGasUploadedFileName(null); }}
+                            className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-red-500 transition-all flex-shrink-0"
+                          >
+                            <i className="fa-solid fa-xmark mr-1"></i>Remove
+                          </button>
+                        )}
+                      </div>
+                      {gasUploadError && (
+                        <div className="mt-3 bg-red-50 border border-red-100 text-red-700 rounded-xl p-3">
+                          <p className="font-bold text-xs">{gasUploadError}</p>
+                        </div>
+                      )}
+                      {gasReadings.length > 0 && gasComparison && (
+                        <div className="mt-3 pt-3 border-t border-orange-200 grid grid-cols-3 gap-3">
+                          <div>
+                            <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest">Monthly Avg</p>
+                            <p className="text-base font-black text-orange-900">${gasComparison.estimatedMonthlyCost.toFixed(0)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest">Total Usage</p>
+                            <p className="text-base font-black text-orange-900">{gasComparison.totalUsage.toFixed(0)} therms</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest">Combined</p>
+                            <p className="text-base font-black text-slate-900">
+                              ${((comparisons.find(c => c.tariffId === currentTariff.id)?.estimatedMonthlyCost || 0) + gasComparison.estimatedMonthlyCost).toFixed(0)}/mo
+                            </p>
+                          </div>
+                        </div>
                       )}
                     </div>
-                  </div>
-                  {gasReadings.length === 0 ? (
-                    <label className="inline-flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-bold text-sm rounded-xl cursor-pointer transition-all">
-                      <i className="fa-solid fa-cloud-arrow-up"></i>
-                      Upload Gas CSV
-                      <input type="file" className="hidden" onChange={handleGasFileUpload} accept=".csv" />
-                    </label>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setGasReadings([]);
-                        setGasUploadError(null);
-                        setGasUploadWarnings([]);
-                        setGasUploadedFileName(null);
-                      }}
-                      className="text-[10px] font-black uppercase tracking-widest text-orange-500 hover:text-orange-700 px-3 py-2 rounded-lg hover:bg-orange-100 transition-all"
-                    >
-                      <i className="fa-solid fa-xmark mr-1"></i> Remove
-                    </button>
-                  )}
-                </div>
 
-                {gasUploadError && (
-                  <div className="mt-4 bg-red-50 border border-red-100 text-red-700 rounded-xl p-4">
-                    <p className="font-bold text-sm">{gasUploadError}</p>
-                  </div>
-                )}
+                    {/* Billing Period End Dates */}
+                    <div className={`px-6 py-4 transition-colors ${customBillingDates.length > 0 ? 'bg-blue-50' : ''}`}>
+                      <div className="flex items-start gap-3">
+                        <i className={`fa-solid fa-calendar-days text-base mt-0.5 flex-shrink-0 ${customBillingDates.length > 0 ? 'text-blue-500' : 'text-slate-300'}`}></i>
+                        <div className="flex-1 min-w-0">
+                          <h4 className={`text-sm font-black ${customBillingDates.length > 0 ? 'text-blue-900' : 'text-slate-600'}`}>Billing Period End Dates</h4>
+                          <p className={`text-xs font-medium mb-2 ${customBillingDates.length > 0 ? 'text-blue-600' : 'text-slate-400'}`}>
+                            {customBillingDates.length > 0
+                              ? `${customBillingDates.length} periods — month view aligned to your actual bill cycles`
+                              : 'Paste end dates from your NEM YTD table to align month view to actual bill cycles'}
+                          </p>
+                          <textarea
+                            rows={2}
+                            placeholder="e.g. 05/27/2025, 06/26/2025, 07/28/2025, 08/27/2025 …"
+                            value={billingDatesInput}
+                            onChange={e => {
+                              const raw = e.target.value;
+                              setBillingDatesInput(raw);
+                              const parts = raw.split(/[\s,;]+/).filter(Boolean);
+                              const dates: string[] = [];
+                              for (const part of parts) {
+                                const mmddyyyy = part.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+                                if (mmddyyyy) { dates.push(`${mmddyyyy[3]}-${mmddyyyy[1].padStart(2,'0')}-${mmddyyyy[2].padStart(2,'0')}`); continue; }
+                                const mmddyy = part.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+                                if (mmddyy) { dates.push(`20${mmddyy[3]}-${mmddyy[1].padStart(2,'0')}-${mmddyy[2].padStart(2,'0')}`); continue; }
+                                if (/^\d{4}-\d{2}-\d{2}$/.test(part)) dates.push(part);
+                              }
+                              const sorted = dates.sort();
+                              localStorage.setItem('vc_billing_dates', JSON.stringify(sorted));
+                              setCustomBillingDates(sorted);
+                            }}
+                            className="w-full text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-400 resize-none placeholder:text-slate-300"
+                          />
+                          {customBillingDates.length > 0 && (
+                            <button
+                              onClick={() => { setBillingDatesInput(''); setCustomBillingDates([]); localStorage.removeItem('vc_billing_dates'); }}
+                              className="mt-1.5 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-red-500 transition-all"
+                            >
+                              <i className="fa-solid fa-xmark mr-1"></i>Clear dates
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
 
-                {gasUploadWarnings.length > 0 && (
-                  <div className="mt-4 text-sm text-orange-700">
-                    <ul className="list-disc pl-5 space-y-1">
-                      {gasUploadWarnings.map((w, idx) => (
-                        <li key={idx}>{w}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {gasReadings.length > 0 && gasComparison && (
-                  <div className="mt-4 pt-4 border-t border-orange-200 grid grid-cols-3 gap-4">
-                    <div>
-                      <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Monthly Avg</p>
-                      <p className="text-lg font-black text-orange-900">${gasComparison.estimatedMonthlyCost.toFixed(0)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Total Usage</p>
-                      <p className="text-lg font-black text-orange-900">{gasComparison.totalUsage.toFixed(0)} therms</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Combined Monthly</p>
-                      <p className="text-lg font-black text-slate-900">
-                        ${((comparisons.find(c => c.tariffId === currentTariff.id)?.estimatedMonthlyCost || 0) + gasComparison.estimatedMonthlyCost).toFixed(0)}
-                      </p>
-                    </div>
                   </div>
                 )}
               </div>
