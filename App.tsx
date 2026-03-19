@@ -459,22 +459,29 @@ const App: React.FC = () => {
       deliveryByMonth = calculateMonthlyDeliveryCost(readingsWithSimulation, currentTariff);
     }
 
+    const pciaRate = currentTariff.pciaRate ?? 0;
+    const monthlyCredit = currentTariff.monthlyCredit ?? 0;
+
     const months = sorted.map(m => {
       const totalCost = m.cost;
+      // PCIA applies to grid consumption only (not net-export months)
+      const pciaCost = pciaRate * Math.max(0, m.usage);
 
       if (hasDeliveryRates) {
         // MCE NEM model: generation + gas + connection fees paid monthly; delivery defers to True-Up
         const deliveryCost = deliveryByMonth[m.monthName] ?? 0;
         const generationCost = totalCost - deliveryCost; // generation + fixed charges
-        // Monthly statement: generation charges + minimum delivery fee (always owed)
-        const statementAmount = generationCost + NEM_MIN_DELIVERY;
+        // Monthly statement: generation + minimum delivery + PCIA + any monthly credits
+        const electricityStatement = generationCost + NEM_MIN_DELIVERY;
+        const statementAmount = electricityStatement + pciaCost + monthlyCredit;
         runningBalance += deliveryCost; // only delivery nets at True-Up
-        return { monthName: m.monthName, usage: m.usage, netCost: totalCost, deliveryCost, generationCost, statementAmount, runningBalance };
+        return { monthName: m.monthName, usage: m.usage, netCost: totalCost, deliveryCost, generationCost, electricityStatement, pciaCost, statementAmount, runningBalance };
       } else {
         // Fallback (no delivery rates): old model — full cost defers
-        const statementAmount = totalCost > NEM_MIN_DELIVERY ? totalCost : NEM_MIN_DELIVERY;
+        const electricityStatement = totalCost > NEM_MIN_DELIVERY ? totalCost : NEM_MIN_DELIVERY;
+        const statementAmount = electricityStatement + pciaCost + monthlyCredit;
         runningBalance += totalCost;
-        return { monthName: m.monthName, usage: m.usage, netCost: totalCost, deliveryCost: totalCost, generationCost: 0, statementAmount, runningBalance };
+        return { monthName: m.monthName, usage: m.usage, netCost: totalCost, deliveryCost: totalCost, generationCost: 0, electricityStatement, pciaCost, statementAmount, runningBalance };
       }
     });
 
@@ -1111,6 +1118,7 @@ const App: React.FC = () => {
                       ? nemTrueUp?.months.find(m => m.monthName === periodMonthKey)
                       : null;
                     const displayElec = nemMonthEntry ? nemMonthEntry.statementAmount : elecCost;
+                    const displayPcia = nemMonthEntry ? nemMonthEntry.pciaCost : 0;
                     // Net-export month = delivery was a credit (generation still charged)
                     const isNemMinMonth = nemMonthEntry != null && nemMonthEntry.deliveryCost < 0;
                     const total = displayElec + (gasCost ?? 0);
@@ -1128,10 +1136,16 @@ const App: React.FC = () => {
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Electricity</span>
                             <span className="text-[11px] font-black text-slate-700">
-                              ${displayElec.toFixed(2)}
+                              ${(displayElec - displayPcia).toFixed(2)}
                               {isNemMinMonth && <span className="text-[9px] font-bold text-yellow-600 ml-1">gen+min del.</span>}
                             </span>
                           </div>
+                          {displayPcia > 0 && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">PCIA</span>
+                              <span className="text-[11px] font-black text-slate-700">${displayPcia.toFixed(2)}</span>
+                            </div>
+                          )}
                           {gasCost != null ? (
                             <div className="flex items-center justify-between">
                               <span className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Gas</span>
@@ -1246,7 +1260,7 @@ const App: React.FC = () => {
 
                   <p className="text-[10px] text-slate-400 font-medium mt-4">
                     {nemTrueUp.hasDeliveryRates
-                      ? '⚡ Generation + gas paid monthly. Delivery accrues to True-Up at anniversary. Delivery rates approx. from PG&E E-V2 tariff schedule. Not modeled: PCIA (~$30/mo) · MCE Storage Credit (~−$10/mo if enrolled).'
+                      ? `⚡ Generation + gas paid monthly. Delivery accrues to True-Up at anniversary. PCIA modeled at $${(currentTariff.pciaRate ?? 0).toFixed(3)}/kWh (varies by enrollment vintage — check page 2 of your PG&E bill). MCE Storage Credit not modeled (if enrolled, ~−$12/mo — enter as monthlyCredit on tariff).`
                       : '⚡ True-Up settles the full 12-month net at your anniversary date. Add delivery rate data to your tariff for MCE-accurate split.'
                     }
                   </p>

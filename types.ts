@@ -24,7 +24,9 @@ export interface Tariff {
   periods: TariffPeriod[];
   fixedMonthlyCharge: number;
   provider?: ProviderType;
-  tier2Multiplier?: number; // for tiered rates; defaults to 1.24
+  tier2Multiplier?: number;  // for tiered rates; defaults to 1.24
+  pciaRate?: number;         // $/kWh Power Cost Indifference Adjustment (MCE/CCA customers, charged by PG&E on grid consumption)
+  monthlyCredit?: number;    // flat monthly bill credit, e.g. MCE Storage Credit (~-$12 if enrolled); negative reduces statement
 }
 
 export interface MonthlyBreakdown {

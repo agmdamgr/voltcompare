@@ -70,6 +70,10 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     type: 'flat',
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
+    // PCIA: PG&E Power Cost Indifference Adjustment charged monthly on gross grid consumption.
+    // Rate varies by enrollment vintage (year customer left bundled PG&E service).
+    // 2025 estimate ~$0.021/kWh blended residential; actual rate on your PG&E bill (page 2 / charges detail).
+    pciaRate: 0.021,
     periods: [
       { name: 'Baseline Average', startHour: 0, endHour: 23, rate: 0.37, summerRate: 0.39 }
     ]
@@ -81,6 +85,7 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     type: 'tou',
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
+    pciaRate: 0.021,
     periods: [
       { name: 'Peak', startHour: 16, endHour: 20, rate: 0.44, summerRate: 0.53 },
       { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.38, summerRate: 0.45 }
@@ -93,6 +98,7 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     type: 'tou',
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
+    pciaRate: 0.021,
     // deliveryRate = PG&E delivery-only component (same network; MCE only changes generation portion)
     periods: [
       { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.486, summerRate: 0.59, deliveryRate: 0.220, deliverySummerRate: 0.295 },
@@ -108,6 +114,7 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     type: 'tou',
     fixedMonthlyCharge: 15,
     provider: 'mce-pge',
+    pciaRate: 0.021,
     periods: [
       { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.40, summerRate: 0.53 },
       { name: 'Partial-Peak', startHour: 15, endHour: 15, rate: 0.35, summerRate: 0.42 },
@@ -125,6 +132,7 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     type: 'tou',
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
+    pciaRate: 0.021,
     periods: [
       { name: 'Peak', startHour: 16, endHour: 20, rate: 0.453, summerRate: 0.543 },
       { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.393, summerRate: 0.463 }
@@ -216,6 +224,7 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     type: 'tou',
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
+    pciaRate: 0.021,
     // deliveryRate = same PG&E delivery as Light Green (only MCE generation premium differs)
     periods: [
       { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.499, summerRate: 0.603, deliveryRate: 0.220, deliverySummerRate: 0.295 },
