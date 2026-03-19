@@ -2,8 +2,10 @@
 import { Tariff, LoadPreset, GasTariff } from './types';
 
 export const DEFAULT_TARIFFS: Tariff[] = [
-  // ============ PG&E Bundled Rates (Jan 2026) ============
-  // Summer = Jun-Sep, Winter = Oct-May. rate = winter, summerRate = summer.
+  // ============ PG&E Bundled Rates ============
+  // Winter = Oct-May, Summer = Jun-Sep. rate = winter, summerRate = summer.
+  // EV2-A winter rates verified against Dec 2025 actual bill (pg 6):
+  //   Peak $0.48575, Part-Peak $0.46905, Off-Peak $0.30036
   {
     id: 'pge-e1',
     name: 'PG&E E-1 (Tiered)',
@@ -35,10 +37,10 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     fixedMonthlyCharge: 0,
     provider: 'pge-bundled',
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.47, summerRate: 0.61 },
-      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.42, summerRate: 0.50 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.42, summerRate: 0.50 },
-      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.30, summerRate: 0.30 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.486, summerRate: 0.61 },
+      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.469, summerRate: 0.50 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.469, summerRate: 0.50 },
+      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.300, summerRate: 0.30 }
     ]
   },
   {
@@ -56,8 +58,10 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     ]
   },
 
-  // ============ MCE Light Green + PG&E Delivery (Jan 2026) ============
-  // MCE generation is ~1-2¢ cheaper than PG&E bundled gen. Delivery is same PG&E component.
+  // ============ MCE Light Green + PG&E Delivery ============
+  // Combined rates (MCE generation + PG&E delivery) verified vs Dec 2025 bill (pg 6+7).
+  // MCE EV2-A Light Green winter: Peak $0.486, Part-Peak $0.469, Off-Peak $0.300
+  // Note: bill also includes PCIA ~$30/mo and MCE Storage Credit ~-$10/mo (not modeled here).
   {
     id: 'mce-e1',
     name: 'MCE Light Green E-1',
@@ -89,10 +93,10 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.45, summerRate: 0.59 },
-      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.40, summerRate: 0.48 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.40, summerRate: 0.48 },
-      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.28, summerRate: 0.28 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.486, summerRate: 0.59 },
+      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.469, summerRate: 0.48 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.469, summerRate: 0.48 },
+      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.300, summerRate: 0.28 }
     ]
   },
   {
@@ -111,16 +115,17 @@ export const DEFAULT_TARIFFS: Tariff[] = [
   },
 
   // ============ MCE Deep Green (100% Renewable) ============
+  // Deep Green adds $0.0125/kWh premium on all usage vs Light Green.
   {
     id: 'mce-deep-tou-c',
     name: 'MCE Deep Green TOU-C',
-    description: 'MCE 100% renewable + PG&E delivery. +$0.01/kWh vs Light Green.',
+    description: 'MCE 100% renewable + PG&E delivery. +$0.0125/kWh vs Light Green.',
     type: 'tou',
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
     periods: [
-      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.45, summerRate: 0.54 },
-      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.39, summerRate: 0.46 }
+      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.453, summerRate: 0.543 },
+      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.393, summerRate: 0.463 }
     ]
   },
   {
@@ -131,10 +136,10 @@ export const DEFAULT_TARIFFS: Tariff[] = [
     fixedMonthlyCharge: 0,
     provider: 'mce-pge',
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.46, summerRate: 0.60 },
-      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.41, summerRate: 0.49 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.41, summerRate: 0.49 },
-      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.29, summerRate: 0.29 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.499, summerRate: 0.603 },
+      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.482, summerRate: 0.493 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.482, summerRate: 0.493 },
+      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.313, summerRate: 0.293 }
     ]
   }
 ];
@@ -153,10 +158,15 @@ export const DEFAULT_GAS_TARIFF: GasTariff = {
   id: 'pge-g1',
   name: 'PG&E G-1 (Residential Gas)',
   description: 'Standard residential gas rate. Tiered based on baseline allocation.',
-  baselineRate: 2.516,        // $/therm for baseline usage (as of 2024)
-  overBaselineRate: 3.014,    // $/therm for usage over baseline
-  baselineTherms: 32,         // Monthly baseline (varies by climate zone, using Zone T avg)
-  fixedMonthlyCharge: 18.68   // Monthly service charge
+  // Rates verified against Dec 2025 actual bill (Zone X, Baseline Territory X):
+  //   Tier 1 Dec: $2.82657 + $0.14324 PPP = $2.970/therm
+  //   Tier 2 Dec: $3.34043 + $0.14324 PPP = $3.484/therm
+  //   Baseline: 2.00 therms/day in winter (Zone X) → ~60 therms/month
+  //   No separate fixed monthly charge on bill
+  baselineRate: 2.97,
+  overBaselineRate: 3.48,
+  baselineTherms: 60,
+  fixedMonthlyCharge: 0
 };
 
 // Simulated load presets with realistic usage patterns

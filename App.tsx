@@ -1049,7 +1049,7 @@ const App: React.FC = () => {
                   </div>
 
                   <p className="text-[10px] text-slate-400 font-medium mt-4">
-                    ⚡ Monthly statements show ~${NEM_MIN_BILL} minimum for net-export months. True-Up settles the full 12-month net at your anniversary date. Non-bypassable charges (NBCs) on gross consumption not included.
+                    ⚡ True-Up settles the full 12-month net at your anniversary date. Not modeled: PCIA (~$30/mo adds to balance) · MCE Storage Program Credit (~−$10/mo if enrolled) · NBC net (~$0/mo, roughly cancels out). Rates verified against Dec 2025 bill.
                   </p>
                 </div>
               )}
