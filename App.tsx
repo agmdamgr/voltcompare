@@ -1116,11 +1116,16 @@ const App: React.FC = () => {
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-2xl font-black text-slate-900 tracking-tight">Rate Options</h3>
                 <button
-                  onClick={() => { localStorage.removeItem('vc_provider'); setProvider(null); }}
-                  className="text-[10px] font-black text-slate-400 hover:text-slate-700 uppercase tracking-widest transition-all"
-                  title="Change provider"
+                  onClick={() => {
+                    const next = provider === 'pge-bundled' ? 'mce-pge' : 'pge-bundled';
+                    localStorage.setItem('vc_provider', next);
+                    setProvider(next);
+                  }}
+                  className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 hover:text-slate-700 uppercase tracking-widest transition-all"
+                  title="Swap provider order"
                 >
-                  {provider === 'pge-bundled' ? 'PG&E' : provider === 'mce-pge' ? 'MCE' : ''} <span className="underline">Change</span>
+                  <i className="fa-solid fa-arrow-right-arrow-left text-xs"></i>
+                  Swap Order
                 </button>
               </div>
 
