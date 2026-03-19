@@ -219,9 +219,9 @@ const App: React.FC = () => {
             const [ey, em, eday] = knownEnd.split('-').map(Number);
             const endTs = new Date(ey, em - 1, eday, 12, 0, 0).getTime();
             const daysToEnd = (endTs - readingTs) / 86400000;
-            if (daysToEnd <= 35) return knownEnd;
+            if (daysToEnd <= 33) return knownEnd;
             // Reading is too far before this end date — extrapolate backward in ~30-day steps
-            const stepsBack = Math.ceil((daysToEnd - 35) / 30);
+            const stepsBack = Math.ceil((daysToEnd - 33) / 30);
             return toKey(new Date(endTs - stepsBack * 30 * 86400000));
           }
 
