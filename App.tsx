@@ -4,7 +4,7 @@ import { EnergyReading, Tariff, ComparisonResult, TimePeriod, SimulatedLoad, Gas
 import { DEFAULT_TARIFFS, LOAD_PRESETS, DEFAULT_GAS_TARIFF, SOCALGAS_TARIFF, detectUtilityFromCoords } from './constants';
 import EnergyChart from './components/EnergyChart';
 import { analyzeUsageWithClaude } from './services/claudeService';
-import { compareTariffs, calculateDetailedCost, calculateMonthlyDeliveryCost } from './services/energyCalculator';
+import { compareTariffs, calculateDetailedCost, calculateMonthlyDeliveryCost, calculateMonthlyGrossConsumption } from './services/energyCalculator';
 import { parsePgeIntervalCsv } from './services/pgeCsvParser';
 import { parsePgeGasCsv } from './services/pgeGasCsvParser';
 import { calculateGasComparison, calculateGasSavingsFromElectrification } from './services/gasCalculator';
@@ -468,6 +468,9 @@ const App: React.FC = () => {
   }, [selectedPeriod, filteredReadings, gasReadings, gasComparison, periodMonthKey, activeGasTariff]);
 
   const NEM_MIN_DELIVERY = 13.30; // PG&E minimum monthly delivery charge paid regardless
+  // Non-Bypassable Charges: PPP + nuclear decom + CTC + wildfire fund ≈ $0.035/kWh
+  // These apply to ALL gross grid consumption and defer to True-Up (NEM customers can't offset them)
+  const NEM_NBC_RATE = 0.035;
 
   const nemTrueUp = useMemo(() => {
     if (!nemEnabled || comparisons.length === 0) return null;
@@ -483,29 +486,36 @@ const App: React.FC = () => {
       deliveryByMonth = calculateMonthlyDeliveryCost(readingsWithSimulation, currentTariff);
     }
 
+    // Gross consumption per month (positive readings only) for NBC calculation
+    const grossByMonth = calculateMonthlyGrossConsumption(readingsWithSimulation);
+
     const pciaRate = currentTariff.pciaRate ?? 0;
     const monthlyCredit = currentTariff.monthlyCredit ?? 0;
 
     const months = sorted.map(m => {
       const totalCost = m.cost;
-      // PCIA applies to grid consumption only (not net-export months)
-      const pciaCost = pciaRate * Math.max(0, m.usage);
+      const grossConsumption = grossByMonth[m.monthName] ?? Math.max(0, m.usage);
+      // NBCs on gross consumption — deferred to True-Up
+      const nbcCost = NEM_NBC_RATE * grossConsumption;
+      // PCIA on gross consumption — defers to True-Up for MCE/CCA customers
+      const pciaCost = pciaRate * grossConsumption;
 
       if (hasDeliveryRates) {
-        // MCE NEM model: generation + gas + connection fees paid monthly; delivery defers to True-Up
+        // MCE NEM model: generation paid monthly; delivery + PCIA + NBCs defer to True-Up
         const deliveryCost = deliveryByMonth[m.monthName] ?? 0;
         const generationCost = totalCost - deliveryCost; // generation + fixed charges
-        // Monthly statement: generation + minimum delivery + PCIA + any monthly credits
+        // Monthly statement: generation + minimum delivery + any monthly credits
         const electricityStatement = generationCost + NEM_MIN_DELIVERY;
-        const statementAmount = electricityStatement + pciaCost + monthlyCredit;
-        runningBalance += deliveryCost; // only delivery nets at True-Up
-        return { monthName: m.monthName, usage: m.usage, netCost: totalCost, deliveryCost, generationCost, electricityStatement, pciaCost, statementAmount, runningBalance };
+        const statementAmount = electricityStatement + monthlyCredit;
+        // True-Up accumulates: delivery + NBCs + PCIA
+        runningBalance += deliveryCost + nbcCost + pciaCost;
+        return { monthName: m.monthName, usage: m.usage, netCost: totalCost, deliveryCost, generationCost, electricityStatement, pciaCost, nbcCost, statementAmount, runningBalance };
       } else {
-        // Fallback (no delivery rates): old model — full cost defers
+        // PG&E bundled NEM: full cost defers, plus NBCs
         const electricityStatement = totalCost > NEM_MIN_DELIVERY ? totalCost : NEM_MIN_DELIVERY;
-        const statementAmount = electricityStatement + pciaCost + monthlyCredit;
-        runningBalance += totalCost;
-        return { monthName: m.monthName, usage: m.usage, netCost: totalCost, deliveryCost: totalCost, generationCost: 0, electricityStatement, pciaCost, statementAmount, runningBalance };
+        const statementAmount = electricityStatement + monthlyCredit;
+        runningBalance += totalCost + nbcCost;
+        return { monthName: m.monthName, usage: m.usage, netCost: totalCost, deliveryCost: totalCost, generationCost: 0, electricityStatement, pciaCost, nbcCost, statementAmount, runningBalance };
       }
     });
 

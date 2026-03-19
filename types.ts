@@ -16,6 +16,12 @@ export interface TariffPeriod {
 
 export type ProviderType = 'pge-bundled' | 'mce-pge' | 'sce-bundled' | 'sdge-bundled';
 
+export interface RateVersion {
+  effectiveBefore: string; // ISO date, e.g. "2026-03-01" — rates apply to readings BEFORE this date
+  periods: TariffPeriod[];
+  fixedMonthlyCharge: number;
+}
+
 export interface Tariff {
   id: string;
   name: string;
@@ -27,6 +33,7 @@ export interface Tariff {
   tier2Multiplier?: number;  // for tiered rates; defaults to 1.24
   pciaRate?: number;         // $/kWh Power Cost Indifference Adjustment (MCE/CCA customers, charged by PG&E on grid consumption)
   monthlyCredit?: number;    // flat monthly bill credit, e.g. MCE Storage Credit (~-$12 if enrolled); negative reduces statement
+  rateHistory?: RateVersion[]; // older rate versions, ordered by effectiveBefore ascending
 }
 
 export interface MonthlyBreakdown {
