@@ -14,6 +14,9 @@ const App: React.FC = () => {
   const [provider, setProvider] = useState<'pge-bundled' | 'mce-pge' | null>(
     () => (localStorage.getItem('vc_provider') as 'pge-bundled' | 'mce-pge' | null) ?? null
   );
+  const [billingCycleDay, setBillingCycleDay] = useState<number>(
+    () => parseInt(localStorage.getItem('vc_billing_day') ?? '1', 10) || 1
+  );
   const [location, setLocation] = useState<string>('San Francisco Bay Area');
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('month');
   const [currentTariff, setCurrentTariff] = useState<Tariff>(
@@ -196,7 +199,14 @@ const App: React.FC = () => {
         const pastDaysOfYear = (d.getTime() - firstDayOfYear.getTime()) / 86400000;
         return `${d.getFullYear()}-W${Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7)}`;
       }
-      if (period === 'month') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (period === 'month') {
+        // Billing cycles start on billingCycleDay each month.
+        // If today is before the cycle start day, it belongs to the previous month's cycle.
+        const day = d.getDate();
+        const month = day >= billingCycleDay ? d.getMonth() : (d.getMonth() === 0 ? 11 : d.getMonth() - 1);
+        const year = day >= billingCycleDay ? d.getFullYear() : (d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear());
+        return `${year}-${String(month + 1).padStart(2, '0')}`;
+      }
       return '';
     };
 
@@ -217,7 +227,7 @@ const App: React.FC = () => {
     return chunks.reverse();
   };
 
-  const periodChunks = useMemo(() => getChunksForPeriod(readingsWithSimulation, selectedPeriod), [readingsWithSimulation, selectedPeriod]);
+  const periodChunks = useMemo(() => getChunksForPeriod(readingsWithSimulation, selectedPeriod), [readingsWithSimulation, selectedPeriod, billingCycleDay]);
 
   useEffect(() => {
     if (isDrillingDown.current) {
@@ -670,6 +680,41 @@ const App: React.FC = () => {
                   )}
                 </div>
               )}
+
+              {/* Billing Cycle Setting */}
+              <div className="rounded-[2rem] p-6 border bg-slate-50 border-slate-100">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-slate-100">
+                      <i className="fa-solid fa-calendar-day text-xl text-slate-500"></i>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-slate-700">Billing Cycle Start Day</h4>
+                      <p className="text-xs text-slate-500 font-medium">Check your bill — PG&amp;E cycles often start mid-month</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={28}
+                      value={billingCycleDay}
+                      onChange={e => {
+                        const v = Math.max(1, Math.min(28, parseInt(e.target.value, 10) || 1));
+                        localStorage.setItem('vc_billing_day', String(v));
+                        setBillingCycleDay(v);
+                      }}
+                      className="w-16 text-center font-black text-lg text-slate-900 bg-white border-2 border-slate-200 rounded-xl px-2 py-1 focus:outline-none focus:border-blue-400"
+                    />
+                    <span className="text-sm font-bold text-slate-400">of month</span>
+                  </div>
+                </div>
+                {billingCycleDay !== 1 && (
+                  <p className="text-[10px] font-bold text-blue-600 mt-3 ml-16">
+                    Billing periods run from the {billingCycleDay}{billingCycleDay === 2 ? 'nd' : billingCycleDay === 3 ? 'rd' : 'th'} of each month
+                  </p>
+                )}
+              </div>
 
               {/* Gas Data Section */}
               <div className={`rounded-[2rem] p-6 border ${gasReadings.length > 0 ? 'bg-orange-50 border-orange-100' : 'bg-slate-50 border-slate-100'}`}>
