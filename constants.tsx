@@ -2,124 +2,130 @@
 import { Tariff, LoadPreset, GasTariff } from './types';
 
 export const DEFAULT_TARIFFS: Tariff[] = [
-  // ============ PG&E Bundled Rates ============
+  // ============ PG&E Bundled Rates — March 2026 ============
+  // PG&E restructured ALL residential rates effective March 1, 2026:
+  //   - New ~$24/month Base Services Charge (BSC) on every plan
+  //   - Per-kWh rates lowered ~$0.05-0.07/kWh across the board
+  //   - Residential bundled rates ~13% lower than Jan 2024
   // Winter = Oct-May, Summer = Jun-Sep. rate = winter, summerRate = summer.
-  // EV2-A winter rates verified against Dec 2025 actual bill (pg 6):
-  //   Peak $0.48575, Part-Peak $0.46905, Off-Peak $0.30036
+  //
+  // EV2-A Mar 2026 rates confirmed via PG&E rate schedule:
+  //   Winter: Peak 41¢, Partial-Peak 39¢, Off-Peak 23¢
+  //   Summer: Peak 54¢, Partial-Peak 43¢, Off-Peak 23¢
+  // E-1, E-TOU-C, E-ELEC: estimated from same ~7¢ delivery reduction — verify against your bill.
   {
     id: 'pge-e1',
     name: 'PG&E E-1 (Tiered)',
-    description: 'Standard residential rate. Tier 1 (baseline) ~38¢, Tier 2 (above) ~47¢.',
+    description: 'Standard residential tiered rate. Tier 1 ~31¢, Tier 2 ~38¢. $24/mo BSC.',
     type: 'flat',
-    fixedMonthlyCharge: 0,
+    fixedMonthlyCharge: 24,
     provider: 'pge-bundled',
     periods: [
-      { name: 'Baseline Average', startHour: 0, endHour: 23, rate: 0.38, summerRate: 0.40 }
+      { name: 'Baseline Average', startHour: 0, endHour: 23, rate: 0.31, summerRate: 0.33 }
     ]
   },
   {
     id: 'pge-tou-c',
     name: 'PG&E TOU-C (4-9 PM)',
-    description: 'Standard Time-of-Use plan. Peak hours are 4–9 PM every day. Summer rates higher.',
+    description: 'Standard TOU. Peak 4–9 PM daily. $24/mo BSC.',
     type: 'tou',
-    fixedMonthlyCharge: 0,
+    fixedMonthlyCharge: 24,
     provider: 'pge-bundled',
     periods: [
-      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.46, summerRate: 0.55 },
-      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.39, summerRate: 0.47 }
+      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.39, summerRate: 0.48 },
+      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.32, summerRate: 0.40 }
     ]
   },
   {
     id: 'pge-ev2a',
     name: 'PG&E EV2-A (EV & Battery)',
-    description: 'Best for EV owners. Cheapest overnight rates. Summer peak is steep.',
+    description: 'Best for EV owners. Cheapest overnight. $24/mo BSC. Mar 2026 rates confirmed.',
     type: 'tou',
-    fixedMonthlyCharge: 0,
+    fixedMonthlyCharge: 24,
     provider: 'pge-bundled',
-    // deliveryRate = PG&E delivery-only component (approx. from PG&E E-V2 tariff schedule)
+    // deliveryRate = PG&E delivery-only component (estimated ~6¢ lower after BSC split)
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.486, summerRate: 0.61, deliveryRate: 0.220, deliverySummerRate: 0.295 },
-      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.469, summerRate: 0.50, deliveryRate: 0.200, deliverySummerRate: 0.215 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.469, summerRate: 0.50, deliveryRate: 0.200, deliverySummerRate: 0.215 },
-      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.300, summerRate: 0.30, deliveryRate: 0.130, deliverySummerRate: 0.120 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.41, summerRate: 0.54, deliveryRate: 0.155, deliverySummerRate: 0.225 },
+      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.39, summerRate: 0.43, deliveryRate: 0.140, deliverySummerRate: 0.155 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.39, summerRate: 0.43, deliveryRate: 0.140, deliverySummerRate: 0.155 },
+      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.23, summerRate: 0.23, deliveryRate: 0.065, deliverySummerRate: 0.055 }
     ]
   },
   {
     id: 'pge-e-home',
     name: 'PG&E E-ELEC (E-Home)',
-    description: 'For electrified homes with heat pumps or batteries. $15/mo fixed charge.',
+    description: 'For electrified homes. Lower per-kWh peak rates. $24/mo BSC (was $15). Estimated.',
     type: 'tou',
-    fixedMonthlyCharge: 15,
+    fixedMonthlyCharge: 24,
     provider: 'pge-bundled',
+    // E-ELEC rates estimated: same ~7¢ reduction as EV2-A. Verify against your bill.
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.42, summerRate: 0.55 },
-      { name: 'Partial-Peak', startHour: 15, endHour: 15, rate: 0.37, summerRate: 0.44 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.37, summerRate: 0.44 },
-      { name: 'Off-Peak', startHour: 0, endHour: 14, rate: 0.30, summerRate: 0.34 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.35, summerRate: 0.48 },
+      { name: 'Partial-Peak', startHour: 15, endHour: 15, rate: 0.30, summerRate: 0.37 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.30, summerRate: 0.37 },
+      { name: 'Off-Peak', startHour: 0, endHour: 14, rate: 0.23, summerRate: 0.27 }
     ]
   },
 
-  // ============ MCE Light Green + PG&E Delivery ============
-  // Combined rates (MCE generation + PG&E delivery) verified vs Dec 2025 bill (pg 6+7).
-  // MCE EV2-A Light Green winter: Peak $0.486, Part-Peak $0.469, Off-Peak $0.300
-  // Note: bill also includes PCIA ~$30/mo and MCE Storage Credit ~-$10/mo (not modeled here).
+  // ============ MCE Light Green + PG&E Delivery — March 2026 ============
+  // Combined rates (MCE generation + PG&E delivery). MCE generation unchanged;
+  // PG&E delivery dropped ~7¢/kWh with new $24/mo BSC (same charge for MCE customers).
+  // MCE also proposed 14% generation rate reduction effective April 2026 — not yet reflected.
+  // PCIA modeled at $0.021/kWh (varies by enrollment vintage).
   {
     id: 'mce-e1',
     name: 'MCE Light Green E-1',
-    description: 'MCE 60% renewable generation + PG&E delivery. Standard tiered rate.',
+    description: 'MCE 60% renewable + PG&E delivery. Tiered. $24/mo BSC.',
     type: 'flat',
-    fixedMonthlyCharge: 0,
+    fixedMonthlyCharge: 24,
     provider: 'mce-pge',
-    // PCIA: PG&E Power Cost Indifference Adjustment charged monthly on gross grid consumption.
-    // Rate varies by enrollment vintage (year customer left bundled PG&E service).
-    // 2025 estimate ~$0.021/kWh blended residential; actual rate on your PG&E bill (page 2 / charges detail).
     pciaRate: 0.021,
     periods: [
-      { name: 'Baseline Average', startHour: 0, endHour: 23, rate: 0.37, summerRate: 0.39 }
+      { name: 'Baseline Average', startHour: 0, endHour: 23, rate: 0.30, summerRate: 0.32 }
     ]
   },
   {
     id: 'mce-tou-c',
     name: 'MCE Light Green TOU-C',
-    description: 'MCE 60% renewable + PG&E delivery. Peak 4-9 PM daily.',
+    description: 'MCE 60% renewable + PG&E delivery. Peak 4-9 PM. $24/mo BSC.',
     type: 'tou',
-    fixedMonthlyCharge: 0,
+    fixedMonthlyCharge: 24,
     provider: 'mce-pge',
     pciaRate: 0.021,
     periods: [
-      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.44, summerRate: 0.53 },
-      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.38, summerRate: 0.45 }
+      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.37, summerRate: 0.46 },
+      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.31, summerRate: 0.38 }
     ]
   },
   {
     id: 'mce-ev2a',
     name: 'MCE Light Green EV2-A',
-    description: 'MCE 60% renewable + PG&E delivery. Best for EV owners.',
+    description: 'MCE 60% renewable + PG&E delivery. Best for EV. $24/mo BSC.',
     type: 'tou',
-    fixedMonthlyCharge: 0,
+    fixedMonthlyCharge: 24,
     provider: 'mce-pge',
     pciaRate: 0.021,
-    // deliveryRate = PG&E delivery-only component (same network; MCE only changes generation portion)
+    // deliveryRate = PG&E delivery-only component (estimated ~6¢ lower after BSC split)
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.486, summerRate: 0.59, deliveryRate: 0.220, deliverySummerRate: 0.295 },
-      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.469, summerRate: 0.48, deliveryRate: 0.200, deliverySummerRate: 0.215 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.469, summerRate: 0.48, deliveryRate: 0.200, deliverySummerRate: 0.215 },
-      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.300, summerRate: 0.28, deliveryRate: 0.130, deliverySummerRate: 0.120 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.416, summerRate: 0.52, deliveryRate: 0.155, deliverySummerRate: 0.225 },
+      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.399, summerRate: 0.41, deliveryRate: 0.140, deliverySummerRate: 0.155 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.399, summerRate: 0.41, deliveryRate: 0.140, deliverySummerRate: 0.155 },
+      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.23, summerRate: 0.21, deliveryRate: 0.065, deliverySummerRate: 0.055 }
     ]
   },
   {
     id: 'mce-e-elec',
     name: 'MCE Light Green E-ELEC',
-    description: 'MCE 60% renewable + PG&E delivery. For electrified homes. $15/mo fixed.',
+    description: 'MCE 60% renewable + PG&E delivery. Electrified homes. $24/mo BSC.',
     type: 'tou',
-    fixedMonthlyCharge: 15,
+    fixedMonthlyCharge: 24,
     provider: 'mce-pge',
     pciaRate: 0.021,
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.40, summerRate: 0.53 },
-      { name: 'Partial-Peak', startHour: 15, endHour: 15, rate: 0.35, summerRate: 0.42 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.35, summerRate: 0.42 },
-      { name: 'Off-Peak', startHour: 0, endHour: 14, rate: 0.28, summerRate: 0.32 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.33, summerRate: 0.46 },
+      { name: 'Partial-Peak', startHour: 15, endHour: 15, rate: 0.28, summerRate: 0.35 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.28, summerRate: 0.35 },
+      { name: 'Off-Peak', startHour: 0, endHour: 14, rate: 0.21, summerRate: 0.25 }
     ]
   },
 
@@ -128,14 +134,14 @@ export const DEFAULT_TARIFFS: Tariff[] = [
   {
     id: 'mce-deep-tou-c',
     name: 'MCE Deep Green TOU-C',
-    description: 'MCE 100% renewable + PG&E delivery. +$0.0125/kWh vs Light Green.',
+    description: 'MCE 100% renewable + PG&E delivery. +$0.0125/kWh vs Light Green. $24/mo BSC.',
     type: 'tou',
-    fixedMonthlyCharge: 0,
+    fixedMonthlyCharge: 24,
     provider: 'mce-pge',
     pciaRate: 0.021,
     periods: [
-      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.453, summerRate: 0.543 },
-      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.393, summerRate: 0.463 }
+      { name: 'Peak', startHour: 16, endHour: 20, rate: 0.383, summerRate: 0.473 },
+      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.323, summerRate: 0.393 }
     ]
   },
   // ============ SCE Rates (approx. Jan 2026 — verify against your SCE bill) ============
@@ -220,17 +226,17 @@ export const DEFAULT_TARIFFS: Tariff[] = [
   {
     id: 'mce-deep-ev2a',
     name: 'MCE Deep Green EV2-A',
-    description: 'MCE 100% renewable + PG&E delivery. Best for eco-conscious EV owners.',
+    description: 'MCE 100% renewable + PG&E delivery. Eco-conscious EV. $24/mo BSC.',
     type: 'tou',
-    fixedMonthlyCharge: 0,
+    fixedMonthlyCharge: 24,
     provider: 'mce-pge',
     pciaRate: 0.021,
     // deliveryRate = same PG&E delivery as Light Green (only MCE generation premium differs)
     periods: [
-      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.499, summerRate: 0.603, deliveryRate: 0.220, deliverySummerRate: 0.295 },
-      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.482, summerRate: 0.493, deliveryRate: 0.200, deliverySummerRate: 0.215 },
-      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.482, summerRate: 0.493, deliveryRate: 0.200, deliverySummerRate: 0.215 },
-      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.313, summerRate: 0.293, deliveryRate: 0.130, deliverySummerRate: 0.120 }
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.429, summerRate: 0.533, deliveryRate: 0.155, deliverySummerRate: 0.225 },
+      { name: 'Partial-Peak (3-4 PM, 9-12 AM)', startHour: 15, endHour: 15, rate: 0.412, summerRate: 0.423, deliveryRate: 0.140, deliverySummerRate: 0.155 },
+      { name: 'Partial-Peak Night', startHour: 21, endHour: 23, rate: 0.412, summerRate: 0.423, deliveryRate: 0.140, deliverySummerRate: 0.155 },
+      { name: 'Off-Peak (12 AM-3 PM)', startHour: 0, endHour: 14, rate: 0.243, summerRate: 0.223, deliveryRate: 0.065, deliverySummerRate: 0.055 }
     ]
   }
 ];
