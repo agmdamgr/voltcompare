@@ -14,9 +14,15 @@ const App: React.FC = () => {
   const [provider, setProvider] = useState<'pge-bundled' | 'mce-pge' | null>(
     () => (localStorage.getItem('vc_provider') as 'pge-bundled' | 'mce-pge' | null) ?? null
   );
-  const [billingCycleDay, setBillingCycleDay] = useState<number>(
-    () => parseInt(localStorage.getItem('vc_billing_day') ?? '1', 10) || 1
-  );
+  const [customBillingDates, setCustomBillingDates] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('vc_billing_dates') ?? '[]'); } catch { return []; }
+  });
+  const [billingDatesInput, setBillingDatesInput] = useState<string>(() => {
+    try {
+      const dates = JSON.parse(localStorage.getItem('vc_billing_dates') ?? '[]') as string[];
+      return dates.map(d => { const [y, m, day] = d.split('-'); return `${m}/${day}/${y}`; }).join(', ');
+    } catch { return ''; }
+  });
   const [nemEnabled, setNemEnabled] = useState<boolean>(
     () => localStorage.getItem('vc_nem') === 'true'
   );
@@ -203,12 +209,13 @@ const App: React.FC = () => {
         return `${d.getFullYear()}-W${Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7)}`;
       }
       if (period === 'month') {
-        // Billing cycles start on billingCycleDay each month.
-        // If today is before the cycle start day, it belongs to the previous month's cycle.
-        const day = d.getDate();
-        const month = day >= billingCycleDay ? d.getMonth() : (d.getMonth() === 0 ? 11 : d.getMonth() - 1);
-        const year = day >= billingCycleDay ? d.getFullYear() : (d.getMonth() === 0 ? d.getFullYear() - 1 : d.getFullYear());
-        return `${year}-${String(month + 1).padStart(2, '0')}`;
+        if (customBillingDates.length > 0) {
+          // Group each reading into the billing period whose end date is the earliest end date >= reading date
+          const readingDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const endDate = customBillingDates.find(ed => ed >= readingDateStr) ?? customBillingDates[customBillingDates.length - 1];
+          return endDate;
+        }
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       }
       return '';
     };
@@ -230,7 +237,7 @@ const App: React.FC = () => {
     return chunks.reverse();
   };
 
-  const periodChunks = useMemo(() => getChunksForPeriod(readingsWithSimulation, selectedPeriod), [readingsWithSimulation, selectedPeriod, billingCycleDay]);
+  const periodChunks = useMemo(() => getChunksForPeriod(readingsWithSimulation, selectedPeriod), [readingsWithSimulation, selectedPeriod, customBillingDates]);
 
   useEffect(() => {
     if (isDrillingDown.current) {
@@ -336,7 +343,12 @@ const App: React.FC = () => {
 
     if (selectedPeriod === 'day') return start.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
     if (selectedPeriod === 'week') return `Week of ${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
-    if (selectedPeriod === 'month') return start.toLocaleDateString([], { month: 'long', year: 'numeric' });
+    if (selectedPeriod === 'month') {
+      if (customBillingDates.length > 0) {
+        return `${start.toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      }
+      return start.toLocaleDateString([], { month: 'long', year: 'numeric' });
+    }
     return `Full Dataset History (${start.getFullYear()})`;
   }, [filteredReadings, selectedPeriod]);
 
@@ -705,39 +717,55 @@ const App: React.FC = () => {
                 </div>
               )}
 
-              {/* Billing Cycle Setting */}
-              <div className="rounded-[2rem] p-6 border bg-slate-50 border-slate-100">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-slate-100">
-                      <i className="fa-solid fa-calendar-day text-xl text-slate-500"></i>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-black text-slate-700">Billing Cycle Start Day</h4>
-                      <p className="text-xs text-slate-500 font-medium">Check your bill — PG&amp;E cycles often start mid-month</p>
-                    </div>
+              {/* Billing Period Dates */}
+              <div className={`rounded-[2rem] p-6 border transition-all ${customBillingDates.length > 0 ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
+                <div className="flex items-start gap-4">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${customBillingDates.length > 0 ? 'bg-blue-100' : 'bg-slate-100'}`}>
+                    <i className={`fa-solid fa-calendar-days text-xl ${customBillingDates.length > 0 ? 'text-blue-600' : 'text-slate-400'}`}></i>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={28}
-                      value={billingCycleDay}
+                  <div className="flex-1 min-w-0">
+                    <h4 className={`text-sm font-black ${customBillingDates.length > 0 ? 'text-blue-900' : 'text-slate-700'}`}>Billing Period End Dates</h4>
+                    <p className={`text-xs font-medium mb-3 ${customBillingDates.length > 0 ? 'text-blue-600' : 'text-slate-500'}`}>
+                      {customBillingDates.length > 0
+                        ? `${customBillingDates.length} periods loaded — month view shows actual billing periods`
+                        : 'Optional: paste end dates from your bill\'s NEM YTD table for exact period alignment'}
+                    </p>
+                    <textarea
+                      rows={2}
+                      placeholder="e.g. 05/27/2025, 06/26/2025, 07/28/2025, 08/27/2025, 09/26/2025, 10/28/2025, 11/26/2025, 12/29/2025"
+                      value={billingDatesInput}
                       onChange={e => {
-                        const v = Math.max(1, Math.min(28, parseInt(e.target.value, 10) || 1));
-                        localStorage.setItem('vc_billing_day', String(v));
-                        setBillingCycleDay(v);
+                        const raw = e.target.value;
+                        setBillingDatesInput(raw);
+                        const parts = raw.split(/[\s,;]+/).filter(Boolean);
+                        const dates: string[] = [];
+                        for (const part of parts) {
+                          const mmddyyyy = part.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+                          if (mmddyyyy) { dates.push(`${mmddyyyy[3]}-${mmddyyyy[1].padStart(2,'0')}-${mmddyyyy[2].padStart(2,'0')}`); continue; }
+                          const mmddyy = part.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+                          if (mmddyy) { dates.push(`20${mmddyy[3]}-${mmddyy[1].padStart(2,'0')}-${mmddyy[2].padStart(2,'0')}`); continue; }
+                          if (/^\d{4}-\d{2}-\d{2}$/.test(part)) dates.push(part);
+                        }
+                        const sorted = dates.sort();
+                        localStorage.setItem('vc_billing_dates', JSON.stringify(sorted));
+                        setCustomBillingDates(sorted);
                       }}
-                      className="w-16 text-center font-black text-lg text-slate-900 bg-white border-2 border-slate-200 rounded-xl px-2 py-1 focus:outline-none focus:border-blue-400"
+                      className="w-full text-xs font-medium text-slate-700 bg-white border-2 border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-400 resize-none placeholder:text-slate-300"
                     />
-                    <span className="text-sm font-bold text-slate-400">of month</span>
+                    {customBillingDates.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setBillingDatesInput('');
+                          setCustomBillingDates([]);
+                          localStorage.removeItem('vc_billing_dates');
+                        }}
+                        className="mt-2 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-red-500 transition-all"
+                      >
+                        <i className="fa-solid fa-xmark mr-1"></i>Clear dates
+                      </button>
+                    )}
                   </div>
                 </div>
-                {billingCycleDay !== 1 && (
-                  <p className="text-[10px] font-bold text-blue-600 mt-3 ml-16">
-                    Billing periods run from the {billingCycleDay}{billingCycleDay === 2 ? 'nd' : billingCycleDay === 3 ? 'rd' : 'th'} of each month
-                  </p>
-                )}
               </div>
 
               {/* Solar / NEM Setting */}
