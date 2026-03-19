@@ -1206,6 +1206,7 @@ const App: React.FC = () => {
                 readings={chartReadings}
                 period={selectedPeriod}
                 tariff={currentTariff}
+                gasReadings={gasReadings.length > 0 ? gasReadings : undefined}
                 onBarClick={handleDrillDown}
               />
 

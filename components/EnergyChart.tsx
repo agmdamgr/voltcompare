@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, XAxis, YAxis } from 'recharts';
-import { EnergyReading, TimePeriod, Tariff, TariffPeriod } from '../types';
+import { CartesianGrid, Tooltip, ResponsiveContainer, Bar, Cell, XAxis, YAxis, ComposedChart, Line } from 'recharts';
+import { EnergyReading, GasReading, TimePeriod, Tariff, TariffPeriod } from '../types';
 
 type HourType = 'peak' | 'partial-peak' | 'off-peak' | 'flat';
 
@@ -58,12 +58,13 @@ interface EnergyChartProps {
   readings: EnergyReading[];
   period: TimePeriod;
   tariff: Tariff;
+  gasReadings?: GasReading[];
   onBarClick?: (timestamp: number) => void;
 }
 
 type Granularity = '15m' | '1h' | '1d' | '1w' | '1m';
 
-const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onBarClick }) => {
+const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, gasReadings, onBarClick }) => {
   const [granularity, setGranularity] = useState<Granularity>('1h');
 
   useEffect(() => {
@@ -72,47 +73,50 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
     else setGranularity('1m');
   }, [period]);
 
+  // Gas is only meaningful at daily+ granularity
+  const showGas = (gasReadings?.length ?? 0) > 0 && (granularity === '1d' || granularity === '1w' || granularity === '1m');
+
+  const bucketKey = (ts: Date, gran: Granularity): string => {
+    const d = new Date(ts);
+    if (gran === '15m') return d.getTime().toString();
+    if (gran === '1h') { d.setMinutes(0, 0, 0); return d.getTime().toString(); }
+    if (gran === '1d') { d.setHours(0, 0, 0, 0); return d.getTime().toString(); }
+    if (gran === '1w') {
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      d.setDate(diff); d.setHours(0, 0, 0, 0); return d.getTime().toString();
+    }
+    // '1m'
+    d.setDate(1); d.setHours(0, 0, 0, 0); return d.getTime().toString();
+  };
+
   const chartData = useMemo(() => {
     if (readings.length === 0) return [];
 
     const now = new Date();
-    const map: Record<string, { usage: number; cost: number; rate: number; label: string; hourType: HourType; timestamp: number; isFuture: boolean }> = {};
+    const map: Record<string, { usage: number; cost: number; rate: number; label: string; hourType: HourType; timestamp: number; isFuture: boolean; gasUsage?: number }> = {};
 
     readings.forEach(r => {
-      let key = '';
-      let label = '';
+      const key = bucketKey(r.timestamp, granularity);
       const h = r.timestamp.getHours();
       const m = r.timestamp.getMonth();
       const hourType = classifyHour(h, tariff);
       const rate = getRateForHour(h, m, tariff);
       const isFuture = r.timestamp > now;
 
+      let label = '';
       if (granularity === '15m') {
-        key = r.timestamp.getTime().toString();
         label = r.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
       } else if (granularity === '1h') {
-        const d = new Date(r.timestamp);
-        d.setMinutes(0, 0, 0);
-        key = d.getTime().toString();
         label = `${h}:00`;
       } else if (granularity === '1d') {
-        const d = new Date(r.timestamp);
-        d.setHours(0, 0, 0, 0);
-        key = d.getTime().toString();
+        const d = new Date(parseInt(key));
         label = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
       } else if (granularity === '1w') {
-        const d = new Date(r.timestamp);
-        const day = d.getDay();
-        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-        d.setDate(diff);
-        d.setHours(0, 0, 0, 0);
-        key = d.getTime().toString();
+        const d = new Date(parseInt(key));
         label = `Wk of ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
       } else {
-        const d = new Date(r.timestamp);
-        d.setDate(1);
-        d.setHours(0, 0, 0, 0);
-        key = d.getTime().toString();
+        const d = new Date(parseInt(key));
         label = d.toLocaleString('default', { month: 'short' });
       }
 
@@ -124,8 +128,20 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
       if (isFuture) map[key].isFuture = true;
     });
 
+    // Merge gas into the same keys
+    if (showGas && gasReadings) {
+      const gasMap: Record<string, number> = {};
+      gasReadings.forEach(r => {
+        const key = bucketKey(r.timestamp, granularity);
+        gasMap[key] = (gasMap[key] ?? 0) + r.value;
+      });
+      for (const key of Object.keys(map)) {
+        if (gasMap[key] != null) map[key].gasUsage = gasMap[key];
+      }
+    }
+
     return Object.values(map).sort((a, b) => a.timestamp - b.timestamp);
-  }, [readings, granularity, tariff]);
+  }, [readings, granularity, tariff, showGas, gasReadings]);
 
   const availableGranularities = useMemo((): Granularity[] => {
     if (period === 'day') return ['15m', '1h'];
@@ -133,6 +149,12 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
     if (period === 'month') return ['1d', '1w'];
     return ['1w', '1m'];
   }, [period]);
+
+  // Compute a reasonable right-axis domain for therms so the line sits in the upper portion
+  const gasMax = useMemo(() => {
+    if (!showGas) return 0;
+    return Math.max(...chartData.map(d => d.gasUsage ?? 0), 0.1);
+  }, [chartData, showGas]);
 
   return (
     <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 transition-all">
@@ -155,8 +177,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
               key={g}
               onClick={() => setGranularity(g)}
               className={`px-4 py-1.5 rounded-xl text-[10px] font-bold uppercase transition-all ${
-                granularity === g 
-                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200' 
+                granularity === g
+                  ? 'bg-white text-blue-600 shadow-sm border border-slate-200'
                   : 'text-slate-400 hover:text-slate-600'
               }`}
             >
@@ -168,22 +190,38 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
 
       <div className="h-80 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <ComposedChart data={chartData} margin={{ top: 10, right: showGas ? 40 : 10, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="6 6" vertical={false} stroke="#f1f5f9" />
-            <XAxis 
-              dataKey="label" 
-              fontSize={9} 
-              tick={{fill: '#94a3b8', fontWeight: 800}} 
+            <XAxis
+              dataKey="label"
+              fontSize={9}
+              tick={{fill: '#94a3b8', fontWeight: 800}}
               axisLine={false}
               tickLine={false}
               minTickGap={25}
             />
-            <YAxis 
-              fontSize={9} 
-              tick={{fill: '#94a3b8', fontWeight: 800}} 
+            {/* Left axis — kWh */}
+            <YAxis
+              yAxisId="elec"
+              fontSize={9}
+              tick={{fill: '#94a3b8', fontWeight: 800}}
               axisLine={false}
               tickLine={false}
             />
+            {/* Right axis — therms (only rendered when gas visible) */}
+            {showGas && (
+              <YAxis
+                yAxisId="gas"
+                orientation="right"
+                fontSize={9}
+                tick={{fill: '#f97316', fontWeight: 800}}
+                axisLine={false}
+                tickLine={false}
+                domain={[0, gasMax * 1.3]}
+                tickFormatter={(v: number) => v === 0 ? '' : `${v.toFixed(1)}`}
+                width={36}
+              />
+            )}
             <Tooltip
               cursor={{fill: '#f8fafc'}}
               content={({ active, payload, label }) => {
@@ -204,8 +242,8 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
                     </p>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontWeight: 700, fontSize: '12px', color: '#64748b' }}>Usage</span>
-                        <span style={{ fontWeight: 800, fontSize: '13px', color: color }}>
+                        <span style={{ fontWeight: 700, fontSize: '12px', color: '#64748b' }}>Electricity</span>
+                        <span style={{ fontWeight: 800, fontSize: '13px', color }}>
                           {data.usage.toFixed(3)} kWh
                         </span>
                       </div>
@@ -215,6 +253,14 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
                           ${data.cost.toFixed(2)}
                         </span>
                       </div>
+                      {data.gasUsage != null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 700, fontSize: '12px', color: '#64748b' }}>Gas</span>
+                          <span style={{ fontWeight: 800, fontSize: '13px', color: '#f97316' }}>
+                            {data.gasUsage.toFixed(2)} therms
+                          </span>
+                        </div>
+                      )}
                       <div style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                         borderTop: '1px solid #f1f5f9', paddingTop: '6px', marginTop: '2px'
@@ -234,8 +280,9 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
                 );
               }}
             />
-            <Bar 
-              dataKey="usage" 
+            <Bar
+              yAxisId="elec"
+              dataKey="usage"
               radius={[6, 6, 0, 0]}
               onClick={(data) => {
                 if (onBarClick && data.timestamp) {
@@ -247,22 +294,23 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
               {chartData.map((entry, index) => {
                 let color = hourTypeColor[entry.hourType];
                 let opacity = 0.85;
-                
-                if (entry.isFuture) {
-                  color = '#cbd5e1'; 
-                  opacity = 0.5;
-                }
-
-                return (
-                  <Cell 
-                    key={`cell-${index}`} 
-                    fill={color} 
-                    fillOpacity={opacity}
-                  />
-                );
+                if (entry.isFuture) { color = '#cbd5e1'; opacity = 0.5; }
+                return <Cell key={`cell-${index}`} fill={color} fillOpacity={opacity} />;
               })}
             </Bar>
-          </BarChart>
+            {showGas && (
+              <Line
+                yAxisId="gas"
+                dataKey="gasUsage"
+                stroke="#f97316"
+                strokeWidth={2.5}
+                dot={{ fill: '#f97316', r: 3, strokeWidth: 0 }}
+                activeDot={{ r: 5, fill: '#f97316' }}
+                connectNulls
+                type="monotone"
+              />
+            )}
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
 
@@ -314,6 +362,12 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, onB
            <div className="flex items-center gap-2">
              <div className="w-3 h-3 bg-blue-500 rounded-md"></div>
              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Flat Rate (All Hours)</span>
+           </div>
+         )}
+         {showGas && (
+           <div className="flex items-center gap-2">
+             <div className="w-3 h-1.5 bg-orange-400 rounded-full"></div>
+             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Gas (therms)</span>
            </div>
          )}
          <div className="flex items-center gap-2">
