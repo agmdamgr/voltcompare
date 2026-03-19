@@ -17,6 +17,9 @@ const App: React.FC = () => {
   const [billingCycleDay, setBillingCycleDay] = useState<number>(
     () => parseInt(localStorage.getItem('vc_billing_day') ?? '1', 10) || 1
   );
+  const [nemEnabled, setNemEnabled] = useState<boolean>(
+    () => localStorage.getItem('vc_nem') === 'true'
+  );
   const [location, setLocation] = useState<string>('San Francisco Bay Area');
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('month');
   const [currentTariff, setCurrentTariff] = useState<Tariff>(
@@ -374,6 +377,27 @@ const App: React.FC = () => {
     return (monthEntry.cost / daysInMonth) * periodDays;
   }, [selectedPeriod, filteredReadings, gasComparison, periodMonthKey]);
 
+  const NEM_MIN_BILL = 10; // ~$10/month minimum statement charge
+
+  const nemTrueUp = useMemo(() => {
+    if (!nemEnabled || comparisons.length === 0) return null;
+    const breakdown = comparisons.find(c => c.tariffId === currentTariff.id)?.breakdown ?? [];
+    const sorted = [...breakdown].sort((a, b) => a.monthName.localeCompare(b.monthName));
+    let runningBalance = 0;
+    const months = sorted.map(m => {
+      const netCost = m.cost; // negative = credit (net exporter), positive = charge
+      // Monthly statement: only pay minimum when net exporter, pay actual when net importer
+      const statementAmount = netCost > NEM_MIN_BILL ? netCost : NEM_MIN_BILL;
+      // The rest accrues to True-Up
+      const deferred = netCost - statementAmount;
+      runningBalance += netCost;
+      return { monthName: m.monthName, usage: m.usage, netCost, statementAmount, deferred, runningBalance };
+    });
+    const trueUpBalance = runningBalance; // positive = you owe, negative = PG&E owes you
+    const totalStatements = months.reduce((s, m) => s + m.statementAmount, 0);
+    return { months, trueUpBalance, totalStatements };
+  }, [nemEnabled, comparisons, currentTariff]);
+
   const sortedComparisons = useMemo(() => {
     if (comparisons.length === 0) return [];
     const currentEntry = comparisons.find(c => c.tariffId === currentTariff.id);
@@ -716,6 +740,33 @@ const App: React.FC = () => {
                 )}
               </div>
 
+              {/* Solar / NEM Setting */}
+              <div className={`rounded-[2rem] p-6 border transition-all ${nemEnabled ? 'bg-yellow-50 border-yellow-200' : 'bg-slate-50 border-slate-100'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${nemEnabled ? 'bg-yellow-200' : 'bg-slate-100'}`}>
+                      <i className={`fa-solid fa-solar-panel text-xl ${nemEnabled ? 'text-yellow-700' : 'text-slate-400'}`}></i>
+                    </div>
+                    <div>
+                      <h4 className={`text-sm font-black ${nemEnabled ? 'text-yellow-900' : 'text-slate-700'}`}>Solar / NEM</h4>
+                      <p className={`text-xs font-medium ${nemEnabled ? 'text-yellow-700' : 'text-slate-500'}`}>
+                        {nemEnabled ? 'True-Up mode active — credits defer to anniversary' : 'Enable if you have rooftop solar'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const next = !nemEnabled;
+                      localStorage.setItem('vc_nem', String(next));
+                      setNemEnabled(next);
+                    }}
+                    className={`relative w-12 h-6 rounded-full transition-all ${nemEnabled ? 'bg-yellow-500' : 'bg-slate-200'}`}
+                  >
+                    <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${nemEnabled ? 'left-7' : 'left-1'}`} />
+                  </button>
+                </div>
+              </div>
+
               {/* Gas Data Section */}
               <div className={`rounded-[2rem] p-6 border ${gasReadings.length > 0 ? 'bg-orange-50 border-orange-100' : 'bg-slate-50 border-slate-100'}`}>
                 <div className="flex items-center justify-between">
@@ -866,15 +917,21 @@ const App: React.FC = () => {
                 {/* Period Bill breakdown card */}
                 <div className="bg-white p-7 rounded-3xl border border-slate-100 shadow-sm relative">
                   {(() => {
+                    const elecCost = periodStats?.cost ?? 0;
+                    const gasCost = periodGasCost;
+                    // NEM: monthly statement shows minimum bill for net-export months
+                    const nemMonthEntry = nemEnabled && selectedPeriod === 'month' && periodMonthKey
+                      ? nemTrueUp?.months.find(m => m.monthName === periodMonthKey)
+                      : null;
+                    const displayElec = nemMonthEntry ? nemMonthEntry.statementAmount : elecCost;
+                    const isNemMinMonth = nemMonthEntry != null && nemMonthEntry.netCost <= NEM_MIN_BILL;
+                    const total = displayElec + (gasCost ?? 0);
                     const cardLabel = {
                       day: isOngoingPeriod ? 'Day-to-Date Bill' : "Day's Bill",
                       week: isOngoingPeriod ? 'Week-to-Date Bill' : "Week's Bill",
-                      month: isOngoingPeriod ? 'Month-to-Date Bill' : 'Monthly Bill',
+                      month: isOngoingPeriod ? 'Month-to-Date Bill' : (nemEnabled ? 'Monthly Statement' : 'Monthly Bill'),
                       year: isOngoingPeriod ? 'Year-to-Date Bill' : 'Annual Bill',
                     }[selectedPeriod];
-                    const elecCost = periodStats?.cost ?? 0;
-                    const gasCost = periodGasCost;
-                    const total = elecCost + (gasCost ?? 0);
                     return (
                       <>
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{cardLabel}</p>
@@ -882,7 +939,10 @@ const App: React.FC = () => {
                         <div className="mt-3 space-y-1 border-t border-slate-100 pt-3">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Electricity</span>
-                            <span className="text-[11px] font-black text-slate-700">${elecCost.toFixed(2)}</span>
+                            <span className="text-[11px] font-black text-slate-700">
+                              ${displayElec.toFixed(2)}
+                              {isNemMinMonth && <span className="text-[9px] font-bold text-yellow-600 ml-1">min</span>}
+                            </span>
                           </div>
                           {gasCost != null ? (
                             <div className="flex items-center justify-between">
@@ -894,6 +954,9 @@ const App: React.FC = () => {
                               <span className="text-[10px] font-bold text-orange-300 uppercase tracking-widest">Gas</span>
                               <span className="text-[10px] text-slate-300 font-bold">No data</span>
                             </div>
+                          )}
+                          {isNemMinMonth && (
+                            <p className="text-[9px] text-yellow-600 font-bold pt-1">Net export month — credits defer to True-Up</p>
                           )}
                         </div>
                       </>
@@ -914,6 +977,82 @@ const App: React.FC = () => {
                 tariff={currentTariff}
                 onBarClick={handleDrillDown}
               />
+
+              {/* NEM True-Up Tracker */}
+              {nemTrueUp && (
+                <div className="bg-gradient-to-br from-yellow-50 to-amber-50 rounded-[2.5rem] p-8 border border-yellow-100 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-yellow-200 flex items-center justify-center shadow">
+                        <i className="fa-solid fa-solar-panel text-yellow-800 text-xl"></i>
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-black text-slate-900">NEM True-Up Tracker</h3>
+                        <p className="text-sm text-slate-500 font-medium">12-month net balance · credits defer to anniversary</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Projected True-Up</p>
+                      <p className={`text-3xl font-black tracking-tighter ${nemTrueUp.trueUpBalance > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                        {nemTrueUp.trueUpBalance > 0 ? '+' : ''}${nemTrueUp.trueUpBalance.toFixed(0)}
+                      </p>
+                      <p className={`text-[10px] font-bold mt-1 ${nemTrueUp.trueUpBalance > 0 ? 'text-red-400' : 'text-green-500'}`}>
+                        {nemTrueUp.trueUpBalance > 0 ? 'you owe at anniversary' : 'credit at anniversary'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Summary strip */}
+                  <div className="grid grid-cols-3 gap-4 mb-6">
+                    <div className="bg-white/70 rounded-2xl p-4 text-center">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Monthly Statements</p>
+                      <p className="text-xl font-black text-slate-900">${(nemTrueUp.totalStatements / nemTrueUp.months.length).toFixed(0)}<span className="text-sm font-bold text-slate-400">/mo avg</span></p>
+                    </div>
+                    <div className="bg-white/70 rounded-2xl p-4 text-center">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Net Charges</p>
+                      <p className="text-xl font-black text-slate-900">${Math.max(0, nemTrueUp.trueUpBalance).toFixed(0)}</p>
+                    </div>
+                    <div className="bg-white/70 rounded-2xl p-4 text-center">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Net Credits</p>
+                      <p className="text-xl font-black text-green-600">${Math.abs(Math.min(0, nemTrueUp.trueUpBalance)).toFixed(0)}</p>
+                    </div>
+                  </div>
+
+                  {/* Month-by-month table */}
+                  <div className="bg-white/70 rounded-2xl overflow-hidden">
+                    <div className="grid grid-cols-4 px-4 py-2 border-b border-yellow-100">
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Month</span>
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Net kWh</span>
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Statement</span>
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Running Balance</span>
+                    </div>
+                    {[...nemTrueUp.months].reverse().map((m, i) => {
+                      const [year, mo] = m.monthName.split('-');
+                      const label = new Date(+year, +mo - 1, 1).toLocaleDateString([], { month: 'short', year: '2-digit' });
+                      const isExport = m.netCost <= NEM_MIN_BILL;
+                      return (
+                        <div key={i} className={`grid grid-cols-4 px-4 py-2.5 border-b border-yellow-50 last:border-0 ${isExport ? 'bg-green-50/50' : ''}`}>
+                          <span className="text-xs font-bold text-slate-700">{label}</span>
+                          <span className={`text-xs font-bold text-right ${m.usage < 0 ? 'text-green-600' : 'text-slate-600'}`}>
+                            {m.usage < 0 ? '−' : ''}{Math.abs(m.usage).toFixed(0)}
+                          </span>
+                          <span className="text-xs font-bold text-slate-700 text-right">
+                            ${m.statementAmount.toFixed(0)}
+                            {isExport && <span className="text-[9px] text-green-600 ml-1">min</span>}
+                          </span>
+                          <span className={`text-xs font-black text-right ${m.runningBalance > 0 ? 'text-red-500' : 'text-green-600'}`}>
+                            {m.runningBalance > 0 ? '+' : ''}${m.runningBalance.toFixed(0)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <p className="text-[10px] text-slate-400 font-medium mt-4">
+                    ⚡ Monthly statements show ~${NEM_MIN_BILL} minimum for net-export months. True-Up settles the full 12-month net at your anniversary date. Non-bypassable charges (NBCs) on gross consumption not included.
+                  </p>
+                </div>
+              )}
 
               {/* Simulation Panel */}
               <div className="bg-gradient-to-br from-violet-50 to-indigo-50 rounded-[2.5rem] p-8 border border-violet-100 shadow-sm">
