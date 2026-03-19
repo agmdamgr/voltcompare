@@ -86,6 +86,36 @@ export const calculateDetailedCost = (readings: EnergyReading[], tariff: Tariff)
   return { totalCost: totalWithFixed, breakdown };
 };
 
+// Returns PG&E delivery-only cost per calendar month (for NEM True-Up tracking).
+// Only meaningful for tariffs with deliveryRate defined on periods.
+export const calculateMonthlyDeliveryCost = (readings: EnergyReading[], tariff: Tariff): Record<string, number> => {
+  const monthly: Record<string, number> = {};
+
+  readings.forEach(reading => {
+    const date = reading.timestamp;
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const hour = date.getHours();
+    const month = date.getMonth();
+
+    let dr = 0;
+    if (tariff.type === 'flat' || tariff.type === 'tiered') {
+      const p = tariff.periods[0];
+      dr = (p.deliverySummerRate != null && isSummerMonth(month)) ? p.deliverySummerRate : (p.deliveryRate ?? 0);
+    } else {
+      const period = tariff.periods.find(p =>
+        p.startHour <= p.endHour ? (hour >= p.startHour && hour <= p.endHour) : (hour >= p.startHour || hour <= p.endHour)
+      );
+      if (period) {
+        dr = (period.deliverySummerRate != null && isSummerMonth(month)) ? period.deliverySummerRate : (period.deliveryRate ?? 0);
+      }
+    }
+
+    monthly[monthKey] = (monthly[monthKey] ?? 0) + reading.value * dr;
+  });
+
+  return monthly;
+};
+
 export const compareTariffs = (readings: EnergyReading[], currentTariffId: string, allTariffs: Tariff[]): ComparisonResult[] => {
   if (readings.length === 0) return [];
 

@@ -4,7 +4,7 @@ import { EnergyReading, Tariff, ComparisonResult, TimePeriod, SimulatedLoad, Gas
 import { DEFAULT_TARIFFS, LOAD_PRESETS, DEFAULT_GAS_TARIFF } from './constants';
 import EnergyChart from './components/EnergyChart';
 import { analyzeUsageWithClaude } from './services/claudeService';
-import { compareTariffs, calculateDetailedCost } from './services/energyCalculator';
+import { compareTariffs, calculateDetailedCost, calculateMonthlyDeliveryCost } from './services/energyCalculator';
 import { parsePgeIntervalCsv } from './services/pgeCsvParser';
 import { parsePgeGasCsv } from './services/pgeGasCsvParser';
 import { calculateGasComparison, calculateGasSavingsFromElectrification } from './services/gasCalculator';
@@ -389,26 +389,45 @@ const App: React.FC = () => {
     return (monthEntry.cost / daysInMonth) * periodDays;
   }, [selectedPeriod, filteredReadings, gasComparison, periodMonthKey]);
 
-  const NEM_MIN_BILL = 10; // ~$10/month minimum statement charge
+  const NEM_MIN_DELIVERY = 13.30; // PG&E minimum monthly delivery charge paid regardless
 
   const nemTrueUp = useMemo(() => {
     if (!nemEnabled || comparisons.length === 0) return null;
     const breakdown = comparisons.find(c => c.tariffId === currentTariff.id)?.breakdown ?? [];
     const sorted = [...breakdown].sort((a, b) => a.monthName.localeCompare(b.monthName));
+
+    // Check if this tariff has delivery rates (needed for MCE/NEM split)
+    const hasDeliveryRates = currentTariff.periods.some(p => p.deliveryRate != null);
+
     let runningBalance = 0;
+    let deliveryByMonth: Record<string, number> = {};
+    if (hasDeliveryRates) {
+      deliveryByMonth = calculateMonthlyDeliveryCost(readings, currentTariff);
+    }
+
     const months = sorted.map(m => {
-      const netCost = m.cost; // negative = credit (net exporter), positive = charge
-      // Monthly statement: only pay minimum when net exporter, pay actual when net importer
-      const statementAmount = netCost > NEM_MIN_BILL ? netCost : NEM_MIN_BILL;
-      // The rest accrues to True-Up
-      const deferred = netCost - statementAmount;
-      runningBalance += netCost;
-      return { monthName: m.monthName, usage: m.usage, netCost, statementAmount, deferred, runningBalance };
+      const totalCost = m.cost;
+
+      if (hasDeliveryRates) {
+        // MCE NEM model: generation + gas + connection fees paid monthly; delivery defers to True-Up
+        const deliveryCost = deliveryByMonth[m.monthName] ?? 0;
+        const generationCost = totalCost - deliveryCost; // generation + fixed charges
+        // Monthly statement: generation charges + minimum delivery fee (always owed)
+        const statementAmount = generationCost + NEM_MIN_DELIVERY;
+        runningBalance += deliveryCost; // only delivery nets at True-Up
+        return { monthName: m.monthName, usage: m.usage, netCost: totalCost, deliveryCost, generationCost, statementAmount, runningBalance };
+      } else {
+        // Fallback (no delivery rates): old model — full cost defers
+        const statementAmount = totalCost > NEM_MIN_DELIVERY ? totalCost : NEM_MIN_DELIVERY;
+        runningBalance += totalCost;
+        return { monthName: m.monthName, usage: m.usage, netCost: totalCost, deliveryCost: totalCost, generationCost: 0, statementAmount, runningBalance };
+      }
     });
-    const trueUpBalance = runningBalance; // positive = you owe, negative = PG&E owes you
+
+    const trueUpBalance = runningBalance;
     const totalStatements = months.reduce((s, m) => s + m.statementAmount, 0);
-    return { months, trueUpBalance, totalStatements };
-  }, [nemEnabled, comparisons, currentTariff]);
+    return { months, trueUpBalance, totalStatements, hasDeliveryRates };
+  }, [nemEnabled, comparisons, currentTariff, readings]);
 
   const sortedComparisons = useMemo(() => {
     if (comparisons.length === 0) return [];
@@ -952,7 +971,8 @@ const App: React.FC = () => {
                       ? nemTrueUp?.months.find(m => m.monthName === periodMonthKey)
                       : null;
                     const displayElec = nemMonthEntry ? nemMonthEntry.statementAmount : elecCost;
-                    const isNemMinMonth = nemMonthEntry != null && nemMonthEntry.netCost <= NEM_MIN_BILL;
+                    // Net-export month = delivery was a credit (generation still charged)
+                    const isNemMinMonth = nemMonthEntry != null && nemMonthEntry.deliveryCost < 0;
                     const total = displayElec + (gasCost ?? 0);
                     const cardLabel = {
                       day: isOngoingPeriod ? 'Day-to-Date Bill' : "Day's Bill",
@@ -969,7 +989,7 @@ const App: React.FC = () => {
                             <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Electricity</span>
                             <span className="text-[11px] font-black text-slate-700">
                               ${displayElec.toFixed(2)}
-                              {isNemMinMonth && <span className="text-[9px] font-bold text-yellow-600 ml-1">min</span>}
+                              {isNemMinMonth && <span className="text-[9px] font-bold text-yellow-600 ml-1">gen+min del.</span>}
                             </span>
                           </div>
                           {gasCost != null ? (
@@ -984,7 +1004,7 @@ const App: React.FC = () => {
                             </div>
                           )}
                           {isNemMinMonth && (
-                            <p className="text-[9px] text-yellow-600 font-bold pt-1">Net export month — credits defer to True-Up</p>
+                            <p className="text-[9px] text-yellow-600 font-bold pt-1">Net export — delivery credit defers to True-Up</p>
                           )}
                         </div>
                       </>
@@ -1033,40 +1053,48 @@ const App: React.FC = () => {
                   {/* Summary strip */}
                   <div className="grid grid-cols-3 gap-4 mb-6">
                     <div className="bg-white/70 rounded-2xl p-4 text-center">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Monthly Statements</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Monthly Statement</p>
                       <p className="text-xl font-black text-slate-900">${(nemTrueUp.totalStatements / nemTrueUp.months.length).toFixed(0)}<span className="text-sm font-bold text-slate-400">/mo avg</span></p>
+                      <p className="text-[9px] text-slate-400 mt-0.5">gen + min delivery</p>
                     </div>
                     <div className="bg-white/70 rounded-2xl p-4 text-center">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Net Charges</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">True-Up Charges</p>
                       <p className="text-xl font-black text-slate-900">${Math.max(0, nemTrueUp.trueUpBalance).toFixed(0)}</p>
+                      <p className="text-[9px] text-slate-400 mt-0.5">delivery net owed</p>
                     </div>
                     <div className="bg-white/70 rounded-2xl p-4 text-center">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Net Credits</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">True-Up Credits</p>
                       <p className="text-xl font-black text-green-600">${Math.abs(Math.min(0, nemTrueUp.trueUpBalance)).toFixed(0)}</p>
+                      <p className="text-[9px] text-slate-400 mt-0.5">delivery net credit</p>
                     </div>
                   </div>
 
                   {/* Month-by-month table */}
                   <div className="bg-white/70 rounded-2xl overflow-hidden">
-                    <div className="grid grid-cols-4 px-4 py-2 border-b border-yellow-100">
+                    <div className={`grid px-4 py-2 border-b border-yellow-100 ${nemTrueUp.hasDeliveryRates ? 'grid-cols-5' : 'grid-cols-4'}`}>
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Month</span>
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Net kWh</span>
+                      {nemTrueUp.hasDeliveryRates && <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Delivery</span>}
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Statement</span>
-                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Running Balance</span>
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">True-Up Balance</span>
                     </div>
                     {[...nemTrueUp.months].reverse().map((m, i) => {
                       const [year, mo] = m.monthName.split('-');
                       const label = new Date(+year, +mo - 1, 1).toLocaleDateString([], { month: 'short', year: '2-digit' });
-                      const isExport = m.netCost <= NEM_MIN_BILL;
+                      const isNetExport = m.deliveryCost < 0;
                       return (
-                        <div key={i} className={`grid grid-cols-4 px-4 py-2.5 border-b border-yellow-50 last:border-0 ${isExport ? 'bg-green-50/50' : ''}`}>
+                        <div key={i} className={`grid px-4 py-2.5 border-b border-yellow-50 last:border-0 ${nemTrueUp.hasDeliveryRates ? 'grid-cols-5' : 'grid-cols-4'} ${isNetExport ? 'bg-green-50/50' : ''}`}>
                           <span className="text-xs font-bold text-slate-700">{label}</span>
                           <span className={`text-xs font-bold text-right ${m.usage < 0 ? 'text-green-600' : 'text-slate-600'}`}>
                             {m.usage < 0 ? '−' : ''}{Math.abs(m.usage).toFixed(0)}
                           </span>
+                          {nemTrueUp.hasDeliveryRates && (
+                            <span className={`text-xs font-bold text-right ${isNetExport ? 'text-green-600' : 'text-slate-600'}`}>
+                              {isNetExport ? '−$' : '$'}{Math.abs(m.deliveryCost).toFixed(0)}
+                            </span>
+                          )}
                           <span className="text-xs font-bold text-slate-700 text-right">
                             ${m.statementAmount.toFixed(0)}
-                            {isExport && <span className="text-[9px] text-green-600 ml-1">min</span>}
                           </span>
                           <span className={`text-xs font-black text-right ${m.runningBalance > 0 ? 'text-red-500' : 'text-green-600'}`}>
                             {m.runningBalance > 0 ? '+' : ''}${m.runningBalance.toFixed(0)}
@@ -1077,7 +1105,10 @@ const App: React.FC = () => {
                   </div>
 
                   <p className="text-[10px] text-slate-400 font-medium mt-4">
-                    ⚡ True-Up settles the full 12-month net at your anniversary date. Not modeled: PCIA (~$30/mo adds to balance) · MCE Storage Program Credit (~−$10/mo if enrolled) · NBC net (~$0/mo, roughly cancels out). Rates verified against Dec 2025 bill.
+                    {nemTrueUp.hasDeliveryRates
+                      ? '⚡ Generation + gas paid monthly. Delivery accrues to True-Up at anniversary. Delivery rates approx. from PG&E E-V2 tariff schedule. Not modeled: PCIA (~$30/mo) · MCE Storage Credit (~−$10/mo if enrolled).'
+                      : '⚡ True-Up settles the full 12-month net at your anniversary date. Add delivery rate data to your tariff for MCE-accurate split.'
+                    }
                   </p>
                 </div>
               )}

@@ -10,6 +10,8 @@ export interface TariffPeriod {
   endHour: number;   // 0-23
   rate: number;      // price per kWh (winter / default)
   summerRate?: number; // price per kWh in summer (Jun-Sep), if different
+  deliveryRate?: number;       // delivery-only portion (winter), for NEM True-Up split
+  deliverySummerRate?: number; // delivery-only portion (summer)
 }
 
 export interface Tariff {
