@@ -420,10 +420,12 @@ const App: React.FC = () => {
   }, [filteredReadings]);
 
   const periodGasCost = useMemo(() => {
-    if (!gasComparison || gasComparison.breakdown.length === 0 || filteredReadings.length === 0) return null;
+    if (filteredReadings.length === 0) return null;
     const start = filteredReadings[0].timestamp;
+    const end = filteredReadings[filteredReadings.length - 1].timestamp;
 
     if (selectedPeriod === 'year') {
+      if (!gasComparison || gasComparison.breakdown.length === 0) return null;
       const year = start.getFullYear();
       return gasComparison.breakdown
         .filter(b => b.monthName.startsWith(`${year}-`))
@@ -431,17 +433,31 @@ const App: React.FC = () => {
     }
 
     if (selectedPeriod === 'month') {
-      return gasComparison.breakdown.find(b => b.monthName === periodMonthKey)?.cost ?? null;
+      // Sum gas readings that actually fall within this billing period's date range.
+      // Using periodMonthKey (calendar month of period start) misses gas timestamped in
+      // the next calendar month — e.g. a Nov 27–Dec 29 billing period has most readings in Dec.
+      if (gasReadings.length === 0) return null;
+      const periodStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const periodEnd   = new Date(end.getFullYear(),   end.getMonth(),   end.getDate(), 23, 59, 59);
+      const inPeriod = gasReadings.filter(r => r.timestamp >= periodStart && r.timestamp <= periodEnd);
+      if (inPeriod.length === 0) return null;
+      const therms = inPeriod.reduce((sum, r) => sum + r.value, 0);
+      // Prorate baseline for actual period length (baseline is expressed as a daily rate)
+      const periodDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      const proratedBaseline = activeGasTariff.baselineTherms * periodDays / 30;
+      const baseline = Math.min(therms, proratedBaseline);
+      const overBase = Math.max(0, therms - proratedBaseline);
+      return (baseline * activeGasTariff.baselineRate) + (overBase * activeGasTariff.overBaselineRate) + activeGasTariff.fixedMonthlyCharge;
     }
 
-    // day / week: prorate from the month the period starts in
+    // day / week: prorate the calendar-month entry by period length
+    if (!gasComparison || gasComparison.breakdown.length === 0) return null;
     const monthEntry = gasComparison.breakdown.find(b => b.monthName === periodMonthKey);
     if (!monthEntry) return null;
     const daysInMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
-    const end = filteredReadings[filteredReadings.length - 1].timestamp;
     const periodDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1);
     return (monthEntry.cost / daysInMonth) * periodDays;
-  }, [selectedPeriod, filteredReadings, gasComparison, periodMonthKey]);
+  }, [selectedPeriod, filteredReadings, gasReadings, gasComparison, periodMonthKey, activeGasTariff]);
 
   const NEM_MIN_DELIVERY = 13.30; // PG&E minimum monthly delivery charge paid regardless
 
