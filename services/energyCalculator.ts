@@ -52,7 +52,7 @@ export const calculateDetailedCost = (readings: EnergyReading[], tariff: Tariff)
       if (monthlyUsageCounter < baseline) {
         rate = baseRate;
       } else {
-        rate = baseRate * 1.24;
+        rate = baseRate * (tariff.tier2Multiplier ?? 1.24);
       }
     } else {
       const period = tariff.periods.find(p => {

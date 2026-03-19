@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, useTransition } from 'react';
-import { EnergyReading, Tariff, ComparisonResult, TimePeriod, SimulatedLoad, GasReading, GasComparisonResult } from './types';
-import { DEFAULT_TARIFFS, LOAD_PRESETS, DEFAULT_GAS_TARIFF } from './constants';
+import { EnergyReading, Tariff, ComparisonResult, TimePeriod, SimulatedLoad, GasReading, GasComparisonResult, ProviderType } from './types';
+import { DEFAULT_TARIFFS, LOAD_PRESETS, DEFAULT_GAS_TARIFF, SOCALGAS_TARIFF, detectUtilityFromCoords } from './constants';
 import EnergyChart from './components/EnergyChart';
 import { analyzeUsageWithClaude } from './services/claudeService';
 import { compareTariffs, calculateDetailedCost, calculateMonthlyDeliveryCost } from './services/energyCalculator';
@@ -11,9 +11,12 @@ import { calculateGasComparison, calculateGasSavingsFromElectrification } from '
 
 const App: React.FC = () => {
   const [readings, setReadings] = useState<EnergyReading[]>([]);
-  const [provider, setProvider] = useState<'pge-bundled' | 'mce-pge' | null>(
-    () => (localStorage.getItem('vc_provider') as 'pge-bundled' | 'mce-pge' | null) ?? null
+  const [provider, setProvider] = useState<ProviderType | null>(
+    () => (localStorage.getItem('vc_provider') as ProviderType | null) ?? null
   );
+  const [detectedRegion, setDetectedRegion] = useState<'pge' | 'sce' | 'sdge' | null>(null);
+  const [zipInput, setZipInput] = useState('');
+  const [zipLookupStatus, setZipLookupStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [customBillingDates, setCustomBillingDates] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('vc_billing_dates') ?? '[]'); } catch { return []; }
   });
@@ -57,8 +60,14 @@ const App: React.FC = () => {
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => setLocation(`PG&E (${pos.coords.latitude.toFixed(2)}, ${pos.coords.longitude.toFixed(2)})`),
-        () => setLocation('PG&E Service Area')
+        (pos) => {
+          const { latitude: lat, longitude: lon } = pos.coords;
+          const region = detectUtilityFromCoords(lat, lon);
+          setDetectedRegion(region);
+          const names = { pge: 'PG&E', sce: 'SCE', sdge: 'SDG&E' };
+          setLocation(`${names[region]} (${lat.toFixed(2)}, ${lon.toFixed(2)})`);
+        },
+        () => setLocation('California')
       );
     }
   }, []);
@@ -139,14 +148,42 @@ const App: React.FC = () => {
     reader.readAsText(file);
   };
 
-  // Calculate gas comparison when gas readings change
+  // Use SoCalGas tariff for SCE/SDG&E territory, PG&E gas otherwise
+  const activeGasTariff = (provider === 'sce-bundled' || provider === 'sdge-bundled') ? SOCALGAS_TARIFF : DEFAULT_GAS_TARIFF;
+
+  // Calculate gas comparison when gas readings or territory changes
   useEffect(() => {
     if (gasReadings.length > 0) {
-      setGasComparison(calculateGasComparison(gasReadings, DEFAULT_GAS_TARIFF));
+      setGasComparison(calculateGasComparison(gasReadings, activeGasTariff));
     } else {
       setGasComparison(null);
     }
-  }, [gasReadings]);
+  }, [gasReadings, provider]);
+
+  const lookupZip = async () => {
+    const z = zipInput.trim();
+    if (z.length < 5) return;
+    setZipLookupStatus('loading');
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${z}&country=us&format=json&limit=1`);
+      const data = await res.json();
+      if (data.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lon = parseFloat(data[0].lon);
+        setDetectedRegion(detectUtilityFromCoords(lat, lon));
+        setZipLookupStatus('idle');
+      } else {
+        setZipLookupStatus('error');
+      }
+    } catch {
+      setZipLookupStatus('error');
+    }
+  };
+
+  const pickProvider = (p: ProviderType) => {
+    localStorage.setItem('vc_provider', p);
+    setProvider(p);
+  };
 
   // Calculate simulated load additions for each reading
   const readingsWithSimulation = useMemo(() => {
@@ -544,38 +581,124 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-6 mt-10">
         {readings.length === 0 && provider === null ? (
-          <div className="max-w-2xl mx-auto text-center py-24 bg-white rounded-[3.5rem] shadow-2xl shadow-slate-200 border border-slate-100 px-12">
-            <div className="w-20 h-20 bg-blue-50 rounded-[1.5rem] flex items-center justify-center mx-auto mb-8 shadow-lg">
-              <i className="fa-solid fa-plug text-3xl text-blue-600"></i>
+          <div className="max-w-2xl mx-auto py-16 bg-white rounded-[3.5rem] shadow-2xl shadow-slate-200 border border-slate-100 px-10">
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 bg-blue-50 rounded-[1.5rem] flex items-center justify-center mx-auto mb-6 shadow-lg">
+                <i className="fa-solid fa-location-dot text-3xl text-blue-600"></i>
+              </div>
+              <h2 className="text-4xl font-black text-slate-900 mb-3 tracking-tighter">Who delivers your power?</h2>
+              <p className="text-slate-500 font-medium max-w-md mx-auto">Share your location or ZIP code and we'll detect your utility automatically.</p>
             </div>
-            <h2 className="text-4xl font-black text-slate-900 mb-4 tracking-tighter">Who's your provider?</h2>
-            <p className="text-slate-500 font-medium mb-10 max-w-md mx-auto">We'll show your provider's rates first so comparisons are easier to read.</p>
-            <div className="grid grid-cols-2 gap-4">
+
+            {/* Location detection */}
+            <div className="flex gap-2 mb-2">
               <button
-                onClick={() => { localStorage.setItem('vc_provider', 'pge-bundled'); setProvider('pge-bundled'); }}
-                className="group flex flex-col items-center gap-4 p-8 rounded-[2rem] border-2 border-slate-100 hover:border-blue-400 hover:shadow-xl hover:shadow-blue-50 bg-white transition-all hover:-translate-y-1"
+                onClick={() => {
+                  if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(pos => {
+                      const r = detectUtilityFromCoords(pos.coords.latitude, pos.coords.longitude);
+                      setDetectedRegion(r);
+                    });
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-sm rounded-xl transition-all"
               >
-                <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-600 transition-all">
-                  <i className="fa-solid fa-bolt text-2xl text-blue-600 group-hover:text-white transition-all"></i>
-                </div>
-                <div className="text-left">
-                  <p className="text-base font-black text-slate-900">PG&E Bundled</p>
-                  <p className="text-xs text-slate-400 font-medium mt-1">Generation + Delivery from PG&E</p>
-                </div>
+                <i className="fa-solid fa-location-crosshairs"></i> Use my location
               </button>
+              <input
+                type="text"
+                placeholder="ZIP code"
+                maxLength={5}
+                value={zipInput}
+                onChange={e => setZipInput(e.target.value.replace(/\D/g, ''))}
+                onKeyDown={e => e.key === 'Enter' && lookupZip()}
+                className="flex-1 px-4 py-2.5 border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:outline-none focus:border-blue-400"
+              />
               <button
-                onClick={() => { localStorage.setItem('vc_provider', 'mce-pge'); setProvider('mce-pge'); }}
-                className="group flex flex-col items-center gap-4 p-8 rounded-[2rem] border-2 border-slate-100 hover:border-green-400 hover:shadow-xl hover:shadow-green-50 bg-white transition-all hover:-translate-y-1"
+                onClick={lookupZip}
+                disabled={zipLookupStatus === 'loading'}
+                className="px-4 py-2.5 bg-slate-900 hover:bg-blue-600 text-white font-bold text-sm rounded-xl transition-all disabled:opacity-50"
               >
-                <div className="w-14 h-14 rounded-2xl bg-green-100 flex items-center justify-center group-hover:bg-green-600 transition-all">
-                  <i className="fa-solid fa-leaf text-2xl text-green-600 group-hover:text-white transition-all"></i>
-                </div>
-                <div className="text-left">
-                  <p className="text-base font-black text-slate-900">MCE Clean Energy</p>
-                  <p className="text-xs text-slate-400 font-medium mt-1">MCE generation + PG&E delivery</p>
-                </div>
+                {zipLookupStatus === 'loading' ? <i className="fa-solid fa-spinner animate-spin"></i> : 'Look up'}
               </button>
             </div>
+            {zipLookupStatus === 'error' && <p className="text-xs text-red-500 font-bold mb-3">ZIP not found — select manually below.</p>}
+
+            {detectedRegion && (
+              <div className="mb-6 px-4 py-2.5 bg-green-50 border border-green-100 rounded-xl text-sm font-bold text-green-700">
+                <i className="fa-solid fa-circle-check mr-2"></i>
+                Detected: <span className="uppercase">{{ pge: 'PG&E territory (NorCal)', sce: 'SCE territory (SoCal)', sdge: 'SDG&E territory (San Diego)' }[detectedRegion]}</span>
+                <span className="text-green-500 font-medium ml-1">— select below to confirm</span>
+              </div>
+            )}
+
+            {/* Utility territory cards */}
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              {([
+                { region: 'pge' as const, label: 'PG&E', sub: 'NorCal / Central CA', icon: 'fa-bolt', color: 'blue' },
+                { region: 'sce' as const, label: 'SCE', sub: 'Southern California', icon: 'fa-sun', color: 'orange' },
+                { region: 'sdge' as const, label: 'SDG&E', sub: 'San Diego', icon: 'fa-water', color: 'cyan' },
+              ] as const).map(({ region, label, sub, icon, color }) => {
+                const isDetected = detectedRegion === region;
+                const colorMap = {
+                  blue: { border: isDetected ? 'border-blue-400 bg-blue-50' : 'border-slate-100', icon: 'bg-blue-100 text-blue-600', badge: 'bg-blue-200 text-blue-800' },
+                  orange: { border: isDetected ? 'border-orange-400 bg-orange-50' : 'border-slate-100', icon: 'bg-orange-100 text-orange-600', badge: 'bg-orange-200 text-orange-800' },
+                  cyan: { border: isDetected ? 'border-cyan-400 bg-cyan-50' : 'border-slate-100', icon: 'bg-cyan-100 text-cyan-600', badge: 'bg-cyan-200 text-cyan-800' },
+                };
+                const c = colorMap[color];
+                return (
+                  <button
+                    key={region}
+                    onClick={() => { /* handled by sub-options for pge, direct for others */ if (region === 'sce') pickProvider('sce-bundled'); else if (region === 'sdge') pickProvider('sdge-bundled'); else setDetectedRegion('pge'); }}
+                    className={`flex flex-col items-center gap-3 p-5 rounded-[1.5rem] border-2 ${c.border} hover:shadow-lg bg-white transition-all hover:-translate-y-0.5 relative`}
+                  >
+                    {isDetected && <span className={`absolute top-2 right-2 text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${c.badge}`}>Detected</span>}
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${c.icon}`}>
+                      <i className={`fa-solid ${icon} text-xl`}></i>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-black text-slate-900">{label}</p>
+                      <p className="text-[10px] text-slate-400 font-medium">{sub}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* PGE sub-options — shown when PGE territory is selected/detected */}
+            {(detectedRegion === 'pge' || detectedRegion === null) && (
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 text-center">PG&E Territory — choose your generation provider</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => pickProvider('pge-bundled')}
+                    className="group flex flex-col items-center gap-3 p-6 rounded-[1.5rem] border-2 border-slate-100 hover:border-blue-400 hover:shadow-xl hover:shadow-blue-50 bg-white transition-all hover:-translate-y-1"
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-600 transition-all">
+                      <i className="fa-solid fa-bolt text-xl text-blue-600 group-hover:text-white transition-all"></i>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-black text-slate-900">PG&E Bundled</p>
+                      <p className="text-[10px] text-slate-400 font-medium mt-0.5">Generation + Delivery from PG&E</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => pickProvider('mce-pge')}
+                    className="group flex flex-col items-center gap-3 p-6 rounded-[1.5rem] border-2 border-slate-100 hover:border-green-400 hover:shadow-xl hover:shadow-green-50 bg-white transition-all hover:-translate-y-1"
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center group-hover:bg-green-600 transition-all">
+                      <i className="fa-solid fa-leaf text-xl text-green-600 group-hover:text-white transition-all"></i>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-black text-slate-900">MCE Clean Energy</p>
+                      <p className="text-[10px] text-slate-400 font-medium mt-0.5">MCE generation + PG&E delivery</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <p className="text-[10px] text-slate-300 font-medium text-center mt-6">SCE and SDG&E rates are approximate — verify against your bill. PG&E rates verified Dec 2025.</p>
           </div>
         ) : readings.length === 0 ? (
           <div className="max-w-3xl mx-auto text-center py-24 bg-white rounded-[3.5rem] shadow-2xl shadow-slate-200 border border-slate-100 px-12">
@@ -1330,215 +1453,85 @@ const App: React.FC = () => {
             <div className="lg:col-span-4 flex flex-col gap-8">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-2xl font-black text-slate-900 tracking-tight">Rate Options</h3>
-                <button
-                  onClick={() => {
-                    const next = provider === 'pge-bundled' ? 'mce-pge' : 'pge-bundled';
-                    localStorage.setItem('vc_provider', next);
-                    setProvider(next);
-                  }}
-                  className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 hover:text-slate-700 uppercase tracking-widest transition-all"
-                  title="Swap provider order"
-                >
-                  <i className="fa-solid fa-arrow-right-arrow-left text-xs"></i>
-                  Swap Order
-                </button>
+                {(provider === 'pge-bundled' || provider === 'mce-pge') && (
+                  <button
+                    onClick={() => {
+                      const next = provider === 'pge-bundled' ? 'mce-pge' : 'pge-bundled';
+                      localStorage.setItem('vc_provider', next);
+                      setProvider(next);
+                    }}
+                    className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 hover:text-slate-700 uppercase tracking-widest transition-all"
+                  >
+                    <i className="fa-solid fa-arrow-right-arrow-left text-xs"></i>
+                    Swap Order
+                  </button>
+                )}
               </div>
 
-              {/* MCE + PG&E Delivery Section */}
-              <div className={`space-y-4 ${provider === 'pge-bundled' ? 'order-last pt-4 border-t border-slate-200' : ''}`}>
-                <div className="flex items-center gap-3 px-2">
-                  <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
-                    <i className="fa-solid fa-leaf text-green-600 text-sm"></i>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-black text-slate-900">MCE + PG&E Delivery</h4>
-                    <p className="text-[10px] text-slate-400 font-medium">Community Choice - 60-100% Renewable</p>
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  {sortedComparisons.filter(c => {
-                    const t = DEFAULT_TARIFFS.find(tar => tar.id === c.tariffId);
-                    return t?.provider === 'mce-pge';
-                  }).map((c) => {
-                    const t = DEFAULT_TARIFFS.find(tar => tar.id === c.tariffId)!;
-                    const isCurrent = currentTariff.id === t.id;
-                    const isBest = c.tariffId === bestTariff?.tariffId;
-                    const isDeepGreen = t.id.includes('deep');
-
-                    return (
-                      <div
-                        key={c.tariffId}
-                        className={`p-6 rounded-[2rem] border-4 transition-all duration-700 relative overflow-hidden ${
-                          isCurrent
-                            ? 'bg-slate-900 border-slate-900 text-white shadow-2xl scale-105 z-10'
-                            : isBest
-                              ? 'bg-white border-green-400 shadow-xl shadow-green-50'
-                              : 'bg-white border-slate-100'
-                        }`}
-                      >
-                        {isCurrent && (
-                          <div className="absolute top-0 right-0 bg-green-600 text-white text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-bl-2xl">
-                            Selected
-                          </div>
-                        )}
-
-                        <div className="mb-6">
-                          <h4 className={`text-lg font-black leading-tight mb-2 ${isCurrent ? 'text-white' : 'text-slate-900'}`}>{t.name}</h4>
-                          <div className="flex flex-wrap gap-2">
-                            <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-full ${isCurrent ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                               {t.type === 'tou' ? 'Time-of-Use' : 'Tiered'}
-                            </span>
-                            <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-full ${isCurrent ? 'bg-green-500/30 text-green-300' : isDeepGreen ? 'bg-green-100 text-green-700' : 'bg-emerald-50 text-emerald-600'}`}>
-                               {isDeepGreen ? '100% Renewable' : '60% Renewable'}
-                            </span>
-                          </div>
+              {/* Dynamic rate sections based on provider */}
+              {(() => {
+                const renderTariffCard = (c: typeof sortedComparisons[0], accentColor: string) => {
+                  const t = DEFAULT_TARIFFS.find(tar => tar.id === c.tariffId)!;
+                  const isCurrent = currentTariff.id === t.id;
+                  const isBest = c.tariffId === bestTariff?.tariffId;
+                  const bestBorder = accentColor === 'green' ? 'border-green-400 shadow-xl shadow-green-50' : accentColor === 'orange' ? 'border-orange-400 shadow-xl shadow-orange-50' : accentColor === 'cyan' ? 'border-cyan-400 shadow-xl shadow-cyan-50' : 'border-blue-400 shadow-xl shadow-blue-50';
+                  const btnHover = accentColor === 'green' ? 'hover:bg-green-600' : accentColor === 'orange' ? 'hover:bg-orange-500' : accentColor === 'cyan' ? 'hover:bg-cyan-600' : 'hover:bg-blue-600';
+                  const badgeColor = t.id.includes('deep') ? 'bg-green-100 text-green-700' : t.provider === 'mce-pge' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500';
+                  return (
+                    <div key={c.tariffId} className={`p-6 rounded-[2rem] border-4 transition-all duration-700 relative overflow-hidden ${isCurrent ? 'bg-slate-900 border-slate-900 text-white shadow-2xl scale-105 z-10' : isBest ? `bg-white ${bestBorder}` : 'bg-white border-slate-100'}`}>
+                      {isCurrent && <div className={`absolute top-0 right-0 ${accentColor === 'green' ? 'bg-green-600' : accentColor === 'orange' ? 'bg-orange-500' : accentColor === 'cyan' ? 'bg-cyan-600' : 'bg-blue-600'} text-white text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-bl-2xl`}>Selected</div>}
+                      <div className="mb-6">
+                        <h4 className={`text-lg font-black leading-tight mb-2 ${isCurrent ? 'text-white' : 'text-slate-900'}`}>{t.name}</h4>
+                        <div className="flex flex-wrap gap-2">
+                          <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-full ${isCurrent ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-500'}`}>{t.type === 'tou' ? 'Time-of-Use' : 'Tiered'}</span>
+                          {(t.provider === 'mce-pge') && <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-full ${isCurrent ? 'bg-green-500/30 text-green-300' : badgeColor}`}>{t.id.includes('deep') ? '100% Renewable' : '60% Renewable'}</span>}
+                          {(t.provider === 'sce-bundled' || t.provider === 'sdge-bundled') && <span className="text-[9px] font-black uppercase px-2 py-1 rounded-full bg-amber-50 text-amber-600">Approx. rates</span>}
                         </div>
-
-                        <div className="border-t pt-6 border-slate-100/10">
-                          <div className="flex items-start justify-between mb-3">
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">Est. Monthly</p>
-                              <p className="text-3xl font-black tracking-tighter">
-                                ${(c.estimatedMonthlyCost + (gasComparison?.estimatedMonthlyCost ?? 0)).toFixed(0)}
-                              </p>
-                            </div>
-                            {!isCurrent && (
-                              <div className={`flex flex-col items-end ${c.savingsVsCurrent > 0 ? 'text-green-500' : 'text-red-400'}`}>
-                                <span className="text-[10px] font-black uppercase tracking-widest mb-1">
-                                  {c.savingsVsCurrent > 0 ? 'Saving' : 'Extra'}
-                                </span>
-                                <span className="text-lg font-black">
-                                  {c.savingsVsCurrent > 0 ? '−' : '+'}${Math.abs(c.savingsVsCurrent).toFixed(0)}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent ? 'text-blue-400' : 'text-blue-500'}`}>Electricity</span>
-                              <span className={`text-[11px] font-black ${isCurrent ? 'text-slate-300' : 'text-slate-600'}`}>${c.estimatedMonthlyCost.toFixed(0)}</span>
-                            </div>
-                            {gasComparison && (
-                              <div className="flex items-center justify-between">
-                                <span className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent ? 'text-orange-400' : 'text-orange-500'}`}>Gas</span>
-                                <span className={`text-[11px] font-black ${isCurrent ? 'text-slate-300' : 'text-slate-600'}`}>${gasComparison.estimatedMonthlyCost.toFixed(0)}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() => setCurrentTariff(t)}
-                          disabled={isCurrent}
-                          className={`w-full mt-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${
-                            isCurrent
-                              ? 'bg-white/10 text-white/30 pointer-events-none'
-                              : 'bg-slate-900 text-white hover:bg-green-600 shadow-lg active:scale-95'
-                          }`}
-                        >
-                          {isCurrent ? 'Baseline' : 'Set as Current'}
-                        </button>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* PG&E Bundled Section */}
-              <div className={`space-y-4 ${provider === 'pge-bundled' ? '' : 'pt-4 border-t border-slate-200'}`}>
-                <div className="flex items-center gap-3 px-2">
-                  <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                    <i className="fa-solid fa-bolt text-blue-600 text-sm"></i>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-black text-slate-900">PG&E Bundled</h4>
-                    <p className="text-[10px] text-slate-400 font-medium">Generation + Delivery from PG&E</p>
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  {sortedComparisons.filter(c => {
-                    const t = DEFAULT_TARIFFS.find(tar => tar.id === c.tariffId);
-                    return t?.provider === 'pge-bundled';
-                  }).map((c) => {
-                    const t = DEFAULT_TARIFFS.find(tar => tar.id === c.tariffId)!;
-                    const isCurrent = currentTariff.id === t.id;
-                    const isBest = c.tariffId === bestTariff?.tariffId;
-
-                    return (
-                      <div
-                        key={c.tariffId}
-                        className={`p-6 rounded-[2rem] border-4 transition-all duration-700 relative overflow-hidden ${
-                          isCurrent
-                            ? 'bg-slate-900 border-slate-900 text-white shadow-2xl scale-105 z-10'
-                            : isBest
-                              ? 'bg-white border-blue-400 shadow-xl shadow-blue-50'
-                              : 'bg-white border-slate-100'
-                        }`}
-                      >
-                        {isCurrent && (
-                          <div className="absolute top-0 right-0 bg-blue-600 text-white text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-bl-2xl">
-                            Selected
+                      <div className="border-t pt-6 border-slate-100/10">
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">Est. Monthly</p>
+                            <p className="text-3xl font-black tracking-tighter">${(c.estimatedMonthlyCost + (gasComparison?.estimatedMonthlyCost ?? 0)).toFixed(0)}</p>
                           </div>
-                        )}
-
-                        <div className="mb-6">
-                          <h4 className={`text-lg font-black leading-tight mb-2 ${isCurrent ? 'text-white' : 'text-slate-900'}`}>{t.name}</h4>
-                          <div className="flex flex-wrap gap-2">
-                            <span className={`text-[9px] font-black uppercase px-2 py-1 rounded-full ${isCurrent ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                               {t.type === 'tou' ? 'Time-of-Use' : 'Tiered'}
-                            </span>
-                          </div>
+                          {!isCurrent && <div className={`flex flex-col items-end ${c.savingsVsCurrent > 0 ? 'text-green-500' : 'text-red-400'}`}><span className="text-[10px] font-black uppercase tracking-widest mb-1">{c.savingsVsCurrent > 0 ? 'Saving' : 'Extra'}</span><span className="text-lg font-black">{c.savingsVsCurrent > 0 ? '−' : '+'}${Math.abs(c.savingsVsCurrent).toFixed(0)}</span></div>}
                         </div>
-
-                        <div className="border-t pt-6 border-slate-100/10">
-                          <div className="flex items-start justify-between mb-3">
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">Est. Monthly</p>
-                              <p className="text-3xl font-black tracking-tighter">
-                                ${(c.estimatedMonthlyCost + (gasComparison?.estimatedMonthlyCost ?? 0)).toFixed(0)}
-                              </p>
-                            </div>
-                            {!isCurrent && (
-                              <div className={`flex flex-col items-end ${c.savingsVsCurrent > 0 ? 'text-green-500' : 'text-red-400'}`}>
-                                <span className="text-[10px] font-black uppercase tracking-widest mb-1">
-                                  {c.savingsVsCurrent > 0 ? 'Saving' : 'Extra'}
-                                </span>
-                                <span className="text-lg font-black">
-                                  {c.savingsVsCurrent > 0 ? '−' : '+'}${Math.abs(c.savingsVsCurrent).toFixed(0)}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between">
-                              <span className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent ? 'text-blue-400' : 'text-blue-500'}`}>Electricity</span>
-                              <span className={`text-[11px] font-black ${isCurrent ? 'text-slate-300' : 'text-slate-600'}`}>${c.estimatedMonthlyCost.toFixed(0)}</span>
-                            </div>
-                            {gasComparison && (
-                              <div className="flex items-center justify-between">
-                                <span className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent ? 'text-orange-400' : 'text-orange-500'}`}>Gas</span>
-                                <span className={`text-[11px] font-black ${isCurrent ? 'text-slate-300' : 'text-slate-600'}`}>${gasComparison.estimatedMonthlyCost.toFixed(0)}</span>
-                              </div>
-                            )}
-                          </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between"><span className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent ? 'text-blue-400' : 'text-blue-500'}`}>Electricity</span><span className={`text-[11px] font-black ${isCurrent ? 'text-slate-300' : 'text-slate-600'}`}>${c.estimatedMonthlyCost.toFixed(0)}</span></div>
+                          {gasComparison && <div className="flex items-center justify-between"><span className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent ? 'text-orange-400' : 'text-orange-500'}`}>Gas</span><span className={`text-[11px] font-black ${isCurrent ? 'text-slate-300' : 'text-slate-600'}`}>${gasComparison.estimatedMonthlyCost.toFixed(0)}</span></div>}
                         </div>
-
-                        <button
-                          onClick={() => setCurrentTariff(t)}
-                          disabled={isCurrent}
-                          className={`w-full mt-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${
-                            isCurrent
-                              ? 'bg-white/10 text-white/30 pointer-events-none'
-                              : 'bg-slate-900 text-white hover:bg-blue-600 shadow-lg active:scale-95'
-                          }`}
-                        >
-                          {isCurrent ? 'Baseline' : 'Set as Current'}
-                        </button>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
+                      <button onClick={() => setCurrentTariff(t)} disabled={isCurrent} className={`w-full mt-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${isCurrent ? 'bg-white/10 text-white/30 pointer-events-none' : `bg-slate-900 text-white ${btnHover} shadow-lg active:scale-95`}`}>{isCurrent ? 'Baseline' : 'Set as Current'}</button>
+                    </div>
+                  );
+                };
+
+                const sections: Array<{ providerFilter: ProviderType; label: string; sub: string; icon: string; iconBg: string; iconColor: string; accent: string; secondary?: boolean }> = provider === 'mce-pge'
+                  ? [
+                      { providerFilter: 'mce-pge', label: 'MCE + PG&E Delivery', sub: 'Community Choice — 60-100% Renewable', icon: 'fa-leaf', iconBg: 'bg-green-100', iconColor: 'text-green-600', accent: 'green' },
+                      { providerFilter: 'pge-bundled', label: 'PG&E Bundled', sub: 'Generation + Delivery from PG&E', icon: 'fa-bolt', iconBg: 'bg-blue-100', iconColor: 'text-blue-600', accent: 'blue', secondary: true },
+                    ]
+                  : provider === 'pge-bundled'
+                  ? [
+                      { providerFilter: 'pge-bundled', label: 'PG&E Bundled', sub: 'Generation + Delivery from PG&E', icon: 'fa-bolt', iconBg: 'bg-blue-100', iconColor: 'text-blue-600', accent: 'blue' },
+                      { providerFilter: 'mce-pge', label: 'MCE + PG&E Delivery', sub: 'Community Choice — 60-100% Renewable', icon: 'fa-leaf', iconBg: 'bg-green-100', iconColor: 'text-green-600', accent: 'green', secondary: true },
+                    ]
+                  : provider === 'sce-bundled'
+                  ? [{ providerFilter: 'sce-bundled', label: 'SCE Rate Options', sub: 'Southern California Edison — approximate rates', icon: 'fa-sun', iconBg: 'bg-orange-100', iconColor: 'text-orange-600', accent: 'orange' }]
+                  : [{ providerFilter: 'sdge-bundled', label: 'SDG&E Rate Options', sub: 'San Diego Gas & Electric — approximate rates', icon: 'fa-water', iconBg: 'bg-cyan-100', iconColor: 'text-cyan-600', accent: 'cyan' }];
+
+                return sections.map(({ providerFilter, label, sub, icon, iconBg, iconColor, accent, secondary }) => (
+                  <div key={providerFilter} className={`space-y-4 ${secondary ? 'pt-4 border-t border-slate-200' : ''}`}>
+                    <div className="flex items-center gap-3 px-2">
+                      <div className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center`}><i className={`fa-solid ${icon} ${iconColor} text-sm`}></i></div>
+                      <div><h4 className="text-sm font-black text-slate-900">{label}</h4><p className="text-[10px] text-slate-400 font-medium">{sub}</p></div>
+                    </div>
+                    <div className="space-y-4">
+                      {sortedComparisons.filter(c => DEFAULT_TARIFFS.find(tar => tar.id === c.tariffId)?.provider === providerFilter).map(c => renderTariffCard(c, accent))}
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
           </div>
         )}

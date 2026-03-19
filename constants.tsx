@@ -130,6 +130,85 @@ export const DEFAULT_TARIFFS: Tariff[] = [
       { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.393, summerRate: 0.463 }
     ]
   },
+  // ============ SCE Rates (approx. Jan 2026 — verify against your SCE bill) ============
+  {
+    id: 'sce-domestic',
+    name: 'SCE Domestic (Tiered)',
+    description: 'Standard residential tiered rate. Tier 1 ~$0.25, Tier 2 ~$0.36.',
+    type: 'tiered',
+    fixedMonthlyCharge: 0,
+    provider: 'sce-bundled',
+    tier2Multiplier: 1.44,
+    periods: [
+      { name: 'Baseline', startHour: 0, endHour: 23, rate: 0.25, summerRate: 0.26 }
+    ]
+  },
+  {
+    id: 'sce-tou-d-4-9pm',
+    name: 'SCE TOU-D-4-9PM',
+    description: 'Time-of-use plan. Peak 4–9 PM daily. Good for flexible households.',
+    type: 'tou',
+    fixedMonthlyCharge: 0,
+    provider: 'sce-bundled',
+    periods: [
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.40, summerRate: 0.52 },
+      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.30, summerRate: 0.27 }
+    ]
+  },
+  {
+    id: 'sce-tou-d-prime',
+    name: 'SCE TOU-D-PRIME (EV)',
+    description: 'Best for EV owners. Super off-peak 9 PM–8 AM at ~$0.13/kWh all year.',
+    type: 'tou',
+    fixedMonthlyCharge: 0,
+    provider: 'sce-bundled',
+    periods: [
+      { name: 'Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.42, summerRate: 0.53 },
+      { name: 'Off-Peak (8 AM-4 PM)', startHour: 8, endHour: 15, rate: 0.26, summerRate: 0.27 },
+      { name: 'Super Off-Peak (9 PM-8 AM)', startHour: 21, endHour: 7, rate: 0.13, summerRate: 0.13 }
+    ]
+  },
+
+  // ============ SDG&E Rates (approx. Jan 2026 — verify against your SDG&E bill) ============
+  // SDG&E has the highest electricity rates in CA — roughly 20-30% above PG&E.
+  {
+    id: 'sdge-dr',
+    name: 'SDG&E DR (Tiered)',
+    description: 'Standard residential tiered rate. Tier 1 ~$0.29, Tier 2 ~$0.43.',
+    type: 'tiered',
+    fixedMonthlyCharge: 0,
+    provider: 'sdge-bundled',
+    tier2Multiplier: 1.48,
+    periods: [
+      { name: 'Baseline', startHour: 0, endHour: 23, rate: 0.29, summerRate: 0.31 }
+    ]
+  },
+  {
+    id: 'sdge-tou-dr1',
+    name: 'SDG&E TOU-DR1',
+    description: 'Standard TOU plan. On-peak 4–9 PM. High summer rates.',
+    type: 'tou',
+    fixedMonthlyCharge: 0,
+    provider: 'sdge-bundled',
+    periods: [
+      { name: 'On-Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.47, summerRate: 0.62 },
+      { name: 'Off-Peak', startHour: 21, endHour: 15, rate: 0.32, summerRate: 0.34 }
+    ]
+  },
+  {
+    id: 'sdge-ev-tou',
+    name: 'SDG&E EV-TOU',
+    description: 'For EV owners. Super off-peak midnight–6 AM at ~$0.14/kWh.',
+    type: 'tou',
+    fixedMonthlyCharge: 0,
+    provider: 'sdge-bundled',
+    periods: [
+      { name: 'On-Peak (4-9 PM)', startHour: 16, endHour: 20, rate: 0.47, summerRate: 0.62 },
+      { name: 'Off-Peak', startHour: 6, endHour: 15, rate: 0.32, summerRate: 0.34 },
+      { name: 'Super Off-Peak (midnight-6 AM)', startHour: 21, endHour: 5, rate: 0.14, summerRate: 0.14 }
+    ]
+  },
+
   {
     id: 'mce-deep-ev2a',
     name: 'MCE Deep Green EV2-A',
@@ -170,6 +249,26 @@ export const DEFAULT_GAS_TARIFF: GasTariff = {
   overBaselineRate: 3.48,
   baselineTherms: 60,
   fixedMonthlyCharge: 0
+};
+
+// ============ SoCalGas Tariff (for SCE / SDG&E territory) ============
+// Approximate Jan 2026 — significantly lower than PG&E gas rates
+export const SOCALGAS_TARIFF: GasTariff = {
+  id: 'socalgas-g1',
+  name: 'SoCalGas G-1 (Residential)',
+  description: 'Southern California Gas residential rate. Tiered based on baseline.',
+  // Approximate rates — verify against your SoCalGas bill
+  baselineRate: 1.20,
+  overBaselineRate: 1.80,
+  baselineTherms: 40, // ~40 therms/month winter baseline (Zone 3 approx.)
+  fixedMonthlyCharge: 0
+};
+
+// Detect utility provider from lat/lon coordinates (approximate — edge cases may be wrong)
+export const detectUtilityFromCoords = (lat: number, lon: number): 'pge' | 'sce' | 'sdge' => {
+  if (lat < 33.5 && lon > -117.9) return 'sdge';   // San Diego County
+  if (lat < 36.0 && lon > -120.5) return 'sce';    // Southern California
+  return 'pge';                                      // Northern / Central California
 };
 
 // Simulated load presets with realistic usage patterns

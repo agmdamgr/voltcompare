@@ -14,6 +14,8 @@ export interface TariffPeriod {
   deliverySummerRate?: number; // delivery-only portion (summer)
 }
 
+export type ProviderType = 'pge-bundled' | 'mce-pge' | 'sce-bundled' | 'sdge-bundled';
+
 export interface Tariff {
   id: string;
   name: string;
@@ -21,7 +23,8 @@ export interface Tariff {
   type: 'flat' | 'tou' | 'tiered';
   periods: TariffPeriod[];
   fixedMonthlyCharge: number;
-  provider?: 'pge-bundled' | 'mce-pge';
+  provider?: ProviderType;
+  tier2Multiplier?: number; // for tiered rates; defaults to 1.24
 }
 
 export interface MonthlyBreakdown {
