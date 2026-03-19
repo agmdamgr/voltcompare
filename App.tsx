@@ -419,7 +419,7 @@ const App: React.FC = () => {
     let runningBalance = 0;
     let deliveryByMonth: Record<string, number> = {};
     if (hasDeliveryRates) {
-      deliveryByMonth = calculateMonthlyDeliveryCost(readings, currentTariff);
+      deliveryByMonth = calculateMonthlyDeliveryCost(readingsWithSimulation, currentTariff);
     }
 
     const months = sorted.map(m => {
@@ -444,7 +444,7 @@ const App: React.FC = () => {
     const trueUpBalance = runningBalance;
     const totalStatements = months.reduce((s, m) => s + m.statementAmount, 0);
     return { months, trueUpBalance, totalStatements, hasDeliveryRates };
-  }, [nemEnabled, comparisons, currentTariff, readings]);
+  }, [nemEnabled, comparisons, currentTariff, readingsWithSimulation]);
 
   const sortedComparisons = useMemo(() => {
     if (comparisons.length === 0) return [];
