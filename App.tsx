@@ -210,10 +210,27 @@ const App: React.FC = () => {
       }
       if (period === 'month') {
         if (customBillingDates.length > 0) {
-          // Group each reading into the billing period whose end date is the earliest end date >= reading date
+          const readingTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0).getTime();
           const readingDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          const endDate = customBillingDates.find(ed => ed >= readingDateStr) ?? customBillingDates[customBillingDates.length - 1];
-          return endDate;
+          const toKey = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+
+          const knownEnd = customBillingDates.find(ed => ed >= readingDateStr);
+          if (knownEnd) {
+            const [ey, em, eday] = knownEnd.split('-').map(Number);
+            const endTs = new Date(ey, em - 1, eday, 12, 0, 0).getTime();
+            const daysToEnd = (endTs - readingTs) / 86400000;
+            if (daysToEnd <= 35) return knownEnd;
+            // Reading is too far before this end date — extrapolate backward in ~30-day steps
+            const stepsBack = Math.ceil((daysToEnd - 35) / 30);
+            return toKey(new Date(endTs - stepsBack * 30 * 86400000));
+          }
+
+          // After last known date — extrapolate forward in ~30-day steps
+          const last = customBillingDates[customBillingDates.length - 1];
+          const [ly, lm, ld] = last.split('-').map(Number);
+          const lastEndTs = new Date(ly, lm - 1, ld, 12, 0, 0).getTime();
+          const stepsAhead = Math.ceil((readingTs - lastEndTs) / (30 * 86400000));
+          return toKey(new Date(lastEndTs + stepsAhead * 30 * 86400000));
         }
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       }
