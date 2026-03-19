@@ -11,6 +11,9 @@ import { calculateGasComparison, calculateGasSavingsFromElectrification } from '
 
 const App: React.FC = () => {
   const [readings, setReadings] = useState<EnergyReading[]>([]);
+  const [provider, setProvider] = useState<'pge-bundled' | 'mce-pge' | null>(
+    () => (localStorage.getItem('vc_provider') as 'pge-bundled' | 'mce-pge' | null) ?? null
+  );
   const [location, setLocation] = useState<string>('San Francisco Bay Area');
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('month');
   const [currentTariff, setCurrentTariff] = useState<Tariff>(
@@ -458,7 +461,41 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 mt-10">
-        {readings.length === 0 ? (
+        {readings.length === 0 && provider === null ? (
+          <div className="max-w-2xl mx-auto text-center py-24 bg-white rounded-[3.5rem] shadow-2xl shadow-slate-200 border border-slate-100 px-12">
+            <div className="w-20 h-20 bg-blue-50 rounded-[1.5rem] flex items-center justify-center mx-auto mb-8 shadow-lg">
+              <i className="fa-solid fa-plug text-3xl text-blue-600"></i>
+            </div>
+            <h2 className="text-4xl font-black text-slate-900 mb-4 tracking-tighter">Who's your provider?</h2>
+            <p className="text-slate-500 font-medium mb-10 max-w-md mx-auto">We'll show your provider's rates first so comparisons are easier to read.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => { localStorage.setItem('vc_provider', 'pge-bundled'); setProvider('pge-bundled'); }}
+                className="group flex flex-col items-center gap-4 p-8 rounded-[2rem] border-2 border-slate-100 hover:border-blue-400 hover:shadow-xl hover:shadow-blue-50 bg-white transition-all hover:-translate-y-1"
+              >
+                <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center group-hover:bg-blue-600 transition-all">
+                  <i className="fa-solid fa-bolt text-2xl text-blue-600 group-hover:text-white transition-all"></i>
+                </div>
+                <div className="text-left">
+                  <p className="text-base font-black text-slate-900">PG&E Bundled</p>
+                  <p className="text-xs text-slate-400 font-medium mt-1">Generation + Delivery from PG&E</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { localStorage.setItem('vc_provider', 'mce-pge'); setProvider('mce-pge'); }}
+                className="group flex flex-col items-center gap-4 p-8 rounded-[2rem] border-2 border-slate-100 hover:border-green-400 hover:shadow-xl hover:shadow-green-50 bg-white transition-all hover:-translate-y-1"
+              >
+                <div className="w-14 h-14 rounded-2xl bg-green-100 flex items-center justify-center group-hover:bg-green-600 transition-all">
+                  <i className="fa-solid fa-leaf text-2xl text-green-600 group-hover:text-white transition-all"></i>
+                </div>
+                <div className="text-left">
+                  <p className="text-base font-black text-slate-900">MCE Clean Energy</p>
+                  <p className="text-xs text-slate-400 font-medium mt-1">MCE generation + PG&E delivery</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        ) : readings.length === 0 ? (
           <div className="max-w-3xl mx-auto text-center py-24 bg-white rounded-[3.5rem] shadow-2xl shadow-slate-200 border border-slate-100 px-12">
             <div className="w-24 h-24 bg-blue-50 rounded-[2rem] flex items-center justify-center mx-auto mb-10 transform rotate-12 shadow-lg">
               <i className="fa-solid fa-file-invoice-dollar text-4xl text-blue-600"></i>
@@ -1030,14 +1067,20 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="lg:col-span-4 space-y-8">
+            <div className="lg:col-span-4 flex flex-col gap-8">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-2xl font-black text-slate-900 tracking-tight">Rate Options</h3>
-                <i className="fa-solid fa-sliders text-slate-300"></i>
+                <button
+                  onClick={() => { localStorage.removeItem('vc_provider'); setProvider(null); }}
+                  className="text-[10px] font-black text-slate-400 hover:text-slate-700 uppercase tracking-widest transition-all"
+                  title="Change provider"
+                >
+                  {provider === 'pge-bundled' ? 'PG&E' : provider === 'mce-pge' ? 'MCE' : ''} <span className="underline">Change</span>
+                </button>
               </div>
 
               {/* MCE + PG&E Delivery Section */}
-              <div className="space-y-4">
+              <div className={`space-y-4 ${provider === 'pge-bundled' ? 'order-last pt-4 border-t border-slate-200' : ''}`}>
                 <div className="flex items-center gap-3 px-2">
                   <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
                     <i className="fa-solid fa-leaf text-green-600 text-sm"></i>
@@ -1086,22 +1129,36 @@ const App: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="flex items-end justify-between border-t pt-6 border-slate-100/10">
-                          <div>
-                            <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isCurrent ? 'text-slate-400' : 'text-slate-400'}`}>Est. Monthly</p>
-                            <p className="text-3xl font-black tracking-tighter">${c.estimatedMonthlyCost.toFixed(0)}</p>
+                        <div className="border-t pt-6 border-slate-100/10">
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">Est. Monthly</p>
+                              <p className="text-3xl font-black tracking-tighter">
+                                ${(c.estimatedMonthlyCost + (gasComparison?.estimatedMonthlyCost ?? 0)).toFixed(0)}
+                              </p>
+                            </div>
+                            {!isCurrent && (
+                              <div className={`flex flex-col items-end ${c.savingsVsCurrent > 0 ? 'text-green-500' : 'text-red-400'}`}>
+                                <span className="text-[10px] font-black uppercase tracking-widest mb-1">
+                                  {c.savingsVsCurrent > 0 ? 'Saving' : 'Extra'}
+                                </span>
+                                <span className="text-lg font-black">
+                                  {c.savingsVsCurrent > 0 ? '−' : '+'}${Math.abs(c.savingsVsCurrent).toFixed(0)}
+                                </span>
+                              </div>
+                            )}
                           </div>
-                          <div className="text-right">
-                             {!isCurrent && (
-                               <div className={`flex flex-col items-end ${c.savingsVsCurrent > 0 ? 'text-green-500' : 'text-red-400'}`}>
-                                 <span className="text-[10px] font-black uppercase tracking-widest mb-1">
-                                   {c.savingsVsCurrent > 0 ? 'Saving' : 'Extra'}
-                                 </span>
-                                 <span className="text-lg font-black">
-                                   {c.savingsVsCurrent > 0 ? '−' : '+'}${Math.abs(c.savingsVsCurrent).toFixed(0)}
-                                 </span>
-                               </div>
-                             )}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent ? 'text-blue-400' : 'text-blue-500'}`}>Electricity</span>
+                              <span className={`text-[11px] font-black ${isCurrent ? 'text-slate-300' : 'text-slate-600'}`}>${c.estimatedMonthlyCost.toFixed(0)}</span>
+                            </div>
+                            {gasComparison && (
+                              <div className="flex items-center justify-between">
+                                <span className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent ? 'text-orange-400' : 'text-orange-500'}`}>Gas</span>
+                                <span className={`text-[11px] font-black ${isCurrent ? 'text-slate-300' : 'text-slate-600'}`}>${gasComparison.estimatedMonthlyCost.toFixed(0)}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -1123,7 +1180,7 @@ const App: React.FC = () => {
               </div>
 
               {/* PG&E Bundled Section */}
-              <div className="space-y-4 pt-4 border-t border-slate-200">
+              <div className={`space-y-4 ${provider === 'pge-bundled' ? '' : 'pt-4 border-t border-slate-200'}`}>
                 <div className="flex items-center gap-3 px-2">
                   <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
                     <i className="fa-solid fa-bolt text-blue-600 text-sm"></i>
@@ -1168,22 +1225,36 @@ const App: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="flex items-end justify-between border-t pt-6 border-slate-100/10">
-                          <div>
-                            <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${isCurrent ? 'text-slate-400' : 'text-slate-400'}`}>Est. Monthly</p>
-                            <p className="text-3xl font-black tracking-tighter">${c.estimatedMonthlyCost.toFixed(0)}</p>
+                        <div className="border-t pt-6 border-slate-100/10">
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">Est. Monthly</p>
+                              <p className="text-3xl font-black tracking-tighter">
+                                ${(c.estimatedMonthlyCost + (gasComparison?.estimatedMonthlyCost ?? 0)).toFixed(0)}
+                              </p>
+                            </div>
+                            {!isCurrent && (
+                              <div className={`flex flex-col items-end ${c.savingsVsCurrent > 0 ? 'text-green-500' : 'text-red-400'}`}>
+                                <span className="text-[10px] font-black uppercase tracking-widest mb-1">
+                                  {c.savingsVsCurrent > 0 ? 'Saving' : 'Extra'}
+                                </span>
+                                <span className="text-lg font-black">
+                                  {c.savingsVsCurrent > 0 ? '−' : '+'}${Math.abs(c.savingsVsCurrent).toFixed(0)}
+                                </span>
+                              </div>
+                            )}
                           </div>
-                          <div className="text-right">
-                             {!isCurrent && (
-                               <div className={`flex flex-col items-end ${c.savingsVsCurrent > 0 ? 'text-green-500' : 'text-red-400'}`}>
-                                 <span className="text-[10px] font-black uppercase tracking-widest mb-1">
-                                   {c.savingsVsCurrent > 0 ? 'Saving' : 'Extra'}
-                                 </span>
-                                 <span className="text-lg font-black">
-                                   {c.savingsVsCurrent > 0 ? '−' : '+'}${Math.abs(c.savingsVsCurrent).toFixed(0)}
-                                 </span>
-                               </div>
-                             )}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent ? 'text-blue-400' : 'text-blue-500'}`}>Electricity</span>
+                              <span className={`text-[11px] font-black ${isCurrent ? 'text-slate-300' : 'text-slate-600'}`}>${c.estimatedMonthlyCost.toFixed(0)}</span>
+                            </div>
+                            {gasComparison && (
+                              <div className="flex items-center justify-between">
+                                <span className={`text-[10px] font-bold uppercase tracking-widest ${isCurrent ? 'text-orange-400' : 'text-orange-500'}`}>Gas</span>
+                                <span className={`text-[11px] font-black ${isCurrent ? 'text-slate-300' : 'text-slate-600'}`}>${gasComparison.estimatedMonthlyCost.toFixed(0)}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
