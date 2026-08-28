@@ -9,6 +9,68 @@ import { parsePgeIntervalCsv } from './services/pgeCsvParser';
 import { parsePgeGasCsv } from './services/pgeGasCsvParser';
 import { calculateGasComparison, calculateGasSavingsFromElectrification } from './services/gasCalculator';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+// PG&E reads meters on a roughly monthly route, so bill cycles land 29-33 days
+// apart rather than on a fixed day of the month. Nominal spacing used when we
+// have only one anchor to work from.
+const NOMINAL_CYCLE_DAYS = 30.44;
+
+const isoDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const parseIsoDate = (s: string) => {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
+// Fill in a full set of billing period end dates from one or two the user actually
+// knows. With two anchors we recover their real cycle length (span / number of
+// cycles between them); with one we fall back to the nominal spacing. Anchors are
+// ground truth and always survive into the result.
+export const projectBillingDates = (anchors: string[], rangeStart: Date, rangeEnd: Date): string[] => {
+  if (anchors.length === 0) return [];
+
+  const anchorDates = [...new Set(anchors)].map(parseIsoDate).sort((a, b) => a.getTime() - b.getTime());
+  const latest = anchorDates[anchorDates.length - 1];
+
+  let cadence = NOMINAL_CYCLE_DAYS;
+  if (anchorDates.length >= 2) {
+    const spanDays = (latest.getTime() - anchorDates[0].getTime()) / DAY_MS;
+    const cycles = Math.max(1, Math.round(spanDays / NOMINAL_CYCLE_DAYS));
+    const derived = spanDays / cycles;
+    // Ignore a derived cadence that isn't a plausible meter-read interval
+    if (derived >= 25 && derived <= 36) cadence = derived;
+  }
+
+  // Walk out from the latest anchor until one date sits at or past each end of the
+  // data — that is exactly enough to bound every period the readings fall into,
+  // with no stray cycles outside the range.
+  const step = (i: number) => new Date(latest.getTime() + Math.round(cadence * i) * DAY_MS);
+  const out: Date[] = [];
+  for (let i = 0; i < 60; i++) {
+    const d = step(-i);
+    out.push(d);
+    if (d.getTime() <= rangeStart.getTime()) break;
+  }
+  if (latest.getTime() < rangeEnd.getTime()) {
+    for (let i = 1; i < 60; i++) {
+      const d = step(i);
+      out.push(d);
+      if (d.getTime() >= rangeEnd.getTime()) break;
+    }
+  }
+
+  // Snap each projected date to a real anchor when one is close by, so the dates
+  // the user typed are never replaced by an estimate a few days off.
+  const tolerance = (cadence / 2) * DAY_MS;
+  const snapped = out.map(d => {
+    const near = anchorDates.find(a => Math.abs(a.getTime() - d.getTime()) < tolerance);
+    return near ?? d;
+  });
+
+  return [...new Set([...snapped, ...anchorDates].map(isoDate))].sort();
+};
+
 const App: React.FC = () => {
   const [readings, setReadings] = useState<EnergyReading[]>([]);
   const [provider, setProvider] = useState<ProviderType | null>(
@@ -29,6 +91,13 @@ const App: React.FC = () => {
   const [nemEnabled, setNemEnabled] = useState<boolean>(
     () => localStorage.getItem('vc_nem') === 'true'
   );
+
+  const applyBillingDates = (isoDates: string[]) => {
+    const sorted = [...new Set(isoDates)].sort();
+    localStorage.setItem('vc_billing_dates', JSON.stringify(sorted));
+    setCustomBillingDates(sorted);
+    setBillingDatesInput(sorted.map(d => { const [y, m, day] = d.split('-'); return `${m}/${day}/${y}`; }).join(', '));
+  };
   const [showRefinements, setShowRefinements] = useState<boolean>(false);
   const [location, setLocation] = useState<string>('San Francisco Bay Area');
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>('month');
@@ -1055,7 +1124,7 @@ const App: React.FC = () => {
                           <p className={`text-xs font-medium mb-2 ${customBillingDates.length > 0 ? 'text-blue-600' : 'text-slate-400'}`}>
                             {customBillingDates.length > 0
                               ? `${customBillingDates.length} periods — month view aligned to your actual bill cycles`
-                              : 'Paste end dates from your NEM YTD table to align month view to actual bill cycles'}
+                              : 'Enter one or two end dates from your bill, then fill in the rest — or paste the whole list from your NEM YTD table'}
                           </p>
                           <textarea
                             rows={2}
@@ -1079,14 +1148,41 @@ const App: React.FC = () => {
                             }}
                             className="w-full text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl px-3 py-2 focus:outline-none focus:border-blue-400 resize-none placeholder:text-slate-300"
                           />
-                          {customBillingDates.length > 0 && (
-                            <button
-                              onClick={() => { setBillingDatesInput(''); setCustomBillingDates([]); localStorage.removeItem('vc_billing_dates'); }}
-                              className="mt-1.5 text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-red-500 transition-all"
-                            >
-                              <i className="fa-solid fa-xmark mr-1"></i>Clear dates
-                            </button>
+                          <div className="flex items-center gap-4 mt-1.5">
+                            {customBillingDates.length > 0 && dataCoverage && (
+                              <button
+                                onClick={() => applyBillingDates(projectBillingDates(customBillingDates, dataCoverage.start, dataCoverage.end))}
+                                className="text-[10px] font-black uppercase tracking-widest text-blue-500 hover:text-blue-700 transition-all"
+                                title={customBillingDates.length >= 2
+                                  ? 'Uses the spacing between your dates to fill the rest of the range'
+                                  : 'Uses ~30.4-day cycles; add a second date to pin your actual spacing'}
+                              >
+                                <i className="fa-solid fa-wand-magic-sparkles mr-1"></i>
+                                Fill in the rest
+                              </button>
+                            )}
+                            {customBillingDates.length > 0 && (
+                              <button
+                                onClick={() => { setBillingDatesInput(''); setCustomBillingDates([]); localStorage.removeItem('vc_billing_dates'); }}
+                                className="text-[10px] font-black uppercase tracking-widest text-blue-400 hover:text-red-500 transition-all"
+                              >
+                                <i className="fa-solid fa-xmark mr-1"></i>Clear dates
+                              </button>
+                            )}
+                          </div>
+                          {customBillingDates.length === 1 && (
+                            <p className="mt-1.5 text-[10px] font-bold text-amber-600">
+                              One date gives ~30.4-day cycles (typically within a few days). Add a second, far-apart date to pin your actual spacing.
+                            </p>
                           )}
+                          {customBillingDates.length === 2 && (() => {
+                            const spanDays = (parseIsoDate(customBillingDates[1]).getTime() - parseIsoDate(customBillingDates[0]).getTime()) / DAY_MS;
+                            return spanDays < NOMINAL_CYCLE_DAYS * 3 ? (
+                              <p className="mt-1.5 text-[10px] font-bold text-amber-600">
+                                These two dates are close together, so the spacing between them drifts when stretched across a year. Your oldest and newest bill dates work better.
+                              </p>
+                            ) : null;
+                          })()}
                         </div>
                       </div>
                     </div>
