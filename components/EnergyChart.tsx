@@ -327,7 +327,10 @@ const EnergyChart: React.FC<EnergyChartProps> = ({ readings, period, tariff, gas
            });
            const partialPeakPeriods = tariff.periods.filter(p => p.name.toLowerCase().includes('partial'));
 
-           const formatHour = (h: number) => {
+           // Callers pass endHour + 1, which is 24 for a period ending at 11 PM.
+           // Wrap into 0-23 first so midnight formats as 12 AM, not 12 PM.
+           const formatHour = (raw: number) => {
+             const h = ((raw % 24) + 24) % 24;
              if (h === 0) return '12 AM';
              if (h === 12) return '12 PM';
              return h < 12 ? `${h} AM` : `${h - 12} PM`;
