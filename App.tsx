@@ -421,10 +421,28 @@ const App: React.FC = () => {
     return { usage, cost: tempCalc.totalCost };
   }, [filteredReadings, comparisons, currentTariff]);
 
+  // Calendar month this period belongs to. Billing periods straddle calendar months
+  // (e.g. Dec 30 - Jan 18 is the January bill), so use the window MIDPOINT rather than
+  // its first reading — otherwise a Dec 30 start would pull December's NEM statement
+  // and display it next to January's period cost.
   const periodMonthKey = useMemo(() => {
     if (filteredReadings.length === 0) return null;
-    const d = filteredReadings[0].timestamp;
+    const start = filteredReadings[0].timestamp;
+    const end = filteredReadings[filteredReadings.length - 1].timestamp;
+    const d = new Date((start.getTime() + end.getTime()) / 2);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, [filteredReadings]);
+
+  // Compact "Dec 30 – Jan 18" label for the active window, used to date the KPI cards
+  // so a billing-cycle figure is never mistaken for a calendar-month one.
+  const periodRangeLabel = useMemo(() => {
+    if (filteredReadings.length === 0) return null;
+    const start = filteredReadings[0].timestamp;
+    const end = filteredReadings[filteredReadings.length - 1].timestamp;
+    const opts = { month: 'short', day: 'numeric' } as const;
+    const a = start.toLocaleDateString([], opts);
+    const b = end.toLocaleDateString([], opts);
+    return a === b ? a : `${a} – ${b}`;
   }, [filteredReadings]);
 
   const periodGasCost = useMemo(() => {
@@ -1127,21 +1145,24 @@ const App: React.FC = () => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 {[
                   {
-                    label: `Usage (${selectedPeriod})`,
+                    label: selectedPeriod === 'month' && customBillingDates.length > 0 ? 'Usage (billing period)' : `Usage (${selectedPeriod})`,
+                    sub: periodRangeLabel,
                     val: `${periodStats?.usage.toFixed(0)} kWh`,
                     color: 'text-slate-900',
                     simNote: simulatedMonthlyKwh > 0 ? `+${Math.round(simulatedMonthlyKwh * (selectedPeriod === 'day' ? 1/30 : selectedPeriod === 'week' ? 7/30 : 1))} sim` : null
                   },
                   {
                     label: 'Status',
+                    sub: null as string | null,
                     val: simulatedMonthlyKwh > 0 ? 'Simulated' : (isOngoingPeriod ? 'Partial' : 'Complete'),
                     color: simulatedMonthlyKwh > 0 ? 'text-violet-500' : (isOngoingPeriod ? 'text-amber-500' : 'text-slate-400')
                   },
-                  { label: `Period Cost`, val: `$${periodStats?.cost.toFixed(2)}`, color: 'text-blue-600' },
+                  { label: `Period Cost`, sub: periodRangeLabel, val: `$${periodStats?.cost.toFixed(2)}`, color: 'text-blue-600' },
                 ].map((stat, i) => (
                   <div key={i} className="bg-white p-7 rounded-3xl border border-slate-100 shadow-sm relative">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{stat.label}</p>
                     <p className={`text-2xl font-black ${stat.color}`}>{stat.val}</p>
+                    {stat.sub && <p className="text-[9px] font-bold text-slate-400 mt-1">{stat.sub}</p>}
                     {'simNote' in stat && stat.simNote && (
                       <span className="absolute top-2 right-2 text-[9px] font-bold text-violet-500 bg-violet-50 px-2 py-0.5 rounded-full">{stat.simNote}</span>
                     )}
@@ -1171,6 +1192,12 @@ const App: React.FC = () => {
                       <>
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-2">{cardLabel}</p>
                         <p className="text-2xl font-black text-slate-900">${total.toFixed(2)}</p>
+                        {nemMonthEntry && periodMonthKey && (
+                          <p className="text-[9px] font-bold text-slate-400 mt-1">
+                            {new Date(Number(periodMonthKey.slice(0, 4)), Number(periodMonthKey.slice(5, 7)) - 1, 1)
+                              .toLocaleDateString([], { month: 'long', year: 'numeric' })} calendar month
+                          </p>
+                        )}
                         <div className="mt-3 space-y-1 border-t border-slate-100 pt-3">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-bold text-blue-500 uppercase tracking-widest">Electricity</span>
@@ -1230,7 +1257,7 @@ const App: React.FC = () => {
                       </div>
                       <div>
                         <h3 className="text-xl font-black text-slate-900">NEM True-Up Tracker</h3>
-                        <p className="text-sm text-slate-500 font-medium">12-month net balance · credits defer to anniversary</p>
+                        <p className="text-sm text-slate-500 font-medium">12-month net balance · calendar months · credits defer to anniversary</p>
                       </div>
                     </div>
                     <div className="text-right">
@@ -1269,7 +1296,7 @@ const App: React.FC = () => {
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Month</span>
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Net kWh</span>
                       {nemTrueUp.hasDeliveryRates && <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Delivery</span>}
-                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Statement</span>
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Statement<span className="block font-bold normal-case tracking-normal text-slate-300">gen + min del.</span></span>
                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">True-Up Balance</span>
                     </div>
                     {[...nemTrueUp.months].reverse().map((m, i) => {
@@ -1463,7 +1490,7 @@ const App: React.FC = () => {
                 <div className="flex items-center justify-between mb-10">
                    <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Historical Billing Breakdown</h3>
                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-slate-50 px-4 py-2 rounded-full border border-slate-100">
-                     Fixed Charges Included
+                     Calendar Months · Fixed Charges Included
                    </div>
                 </div>
                 <div className="overflow-x-auto">
@@ -1472,7 +1499,9 @@ const App: React.FC = () => {
                       <tr className="border-b border-slate-100">
                         <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Billing Month</th>
                         <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Usage</th>
-                        <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Est. Bill (Current)</th>
+                        <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Est. Bill (Current)
+                          {nemEnabled && <span className="block font-bold normal-case tracking-normal text-slate-300">full cost before NEM split</span>}
+                        </th>
                         <th className="pb-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Est. Bill (Best)</th>
                       </tr>
                     </thead>
@@ -1547,6 +1576,7 @@ const App: React.FC = () => {
                           <div>
                             <p className="text-[10px] font-black uppercase tracking-widest mb-1 text-slate-400">Est. Monthly</p>
                             <p className="text-3xl font-black tracking-tighter">${(c.estimatedMonthlyCost + (gasComparison?.estimatedMonthlyCost ?? 0)).toFixed(0)}</p>
+                            <p className={`text-[9px] font-bold mt-1 ${isCurrent ? 'text-slate-500' : 'text-slate-400'}`}>30-day avg over {dataCoverage?.days ?? 0} days{nemEnabled ? ' · before NEM split' : ''}</p>
                           </div>
                           {!isCurrent && <div className={`flex flex-col items-end ${c.savingsVsCurrent > 0 ? 'text-green-500' : 'text-red-400'}`}><span className="text-[10px] font-black uppercase tracking-widest mb-1">{c.savingsVsCurrent > 0 ? 'Saving' : 'Extra'}</span><span className="text-lg font-black">{c.savingsVsCurrent > 0 ? '−' : '+'}${Math.abs(c.savingsVsCurrent).toFixed(0)}</span></div>}
                         </div>
